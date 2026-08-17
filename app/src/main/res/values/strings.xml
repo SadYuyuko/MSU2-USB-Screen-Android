@@ -8,8 +8,21 @@
 
     <string name="btn_connect">连接</string>
     <string name="btn_disconnect">断开</string>
-    <string name="btn_switch_state">切换状态</string>
-    <string name="btn_flash">烧录素材</string>
+    <string name="btn_state_prev">上一个</string>
+    <string name="btn_state_next">下一个</string>
+    <string name="btn_flash">烧录</string>
+
+    <string name="menu_title">菜单</string>
+    <string name="menu_about">关于</string>
+    <string name="menu_update">更新</string>
+    <string name="btn_open">打开</string>
+    <string name="btn_cancel">取消</string>
+    <string name="btn_close">关闭</string>
+    <string name="about_content">项目地址：\nhttps://github.com/SadYuyuko/MSU2-USB-Screen-Android\n\n关闭投屏弹窗：ADB执行\nappops set com.msu2.android PROJECT_MEDIA allow</string>
+    <string name="update_checking">正在检查更新…</string>
+    <string name="update_available">检测到最新版本：%1$s</string>
+    <string name="update_changelog">更新日志：</string>
+    <string name="update_failed">检查更新失败，请检查网络连接</string>
 
     <string name="state_0">GIF 动图</string>
     <string name="state_1">手机状态(蓝)</string>

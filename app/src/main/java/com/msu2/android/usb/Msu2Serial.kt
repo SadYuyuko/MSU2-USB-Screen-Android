@@ -228,15 +228,14 @@ class Msu2Serial(
         return false
     }
 
-    /** 读取并丢弃所有缓冲数据，直到设备静默（有硬性时间上限，防止设备持续广播时挂死）。 */
+    /** 读取并丢弃所有缓冲数据，直到设备静默（连续 3 次读取无数据，即 90ms；有 300ms 硬上限防持续广播挂死）。 */
     private suspend fun drainAll() {
         val deadline = System.currentTimeMillis() + 300
+        var silent = 0
         while (System.currentTimeMillis() < deadline) {
             val n = readChunk(30)
-            if (n == 0) {
-                // 连续静默 3 次（90ms）认为已排空；同时受 300ms 硬上限保护
-                if (System.currentTimeMillis() + 90 >= deadline) break
-            }
+            if (n > 0) silent = 0
+            else if (++silent >= 3) break
         }
         readBuffer.reset()
     }

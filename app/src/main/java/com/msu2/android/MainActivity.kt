@@ -17,9 +17,11 @@ import android.text.Editable
 import android.text.InputType
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
+import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -53,6 +55,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 import java.time.LocalTime
 import kotlin.coroutines.resume
 
@@ -63,6 +68,11 @@ class MainActivity : AppCompatActivity() {
         private const val VID = 0x1A86
         private const val PID = 0xFE0C
         private const val ACTION_USB_PERMISSION = "com.msu2.android.USB_PERMISSION"
+        private const val REPO_URL = "https://github.com/SadYuyuko/MSU2-USB-Screen-Android"
+        private const val RELEASES_URL = "$REPO_URL/releases"
+        private const val LATEST_RELEASE_API = "https://api.github.com/repos/SadYuyuko/MSU2-USB-Screen-Android/releases/latest"
+        /** 投屏授权等待上限：权限弹窗出现后用户有充足时间同意，避免超时误判为拒绝而自动关闭投屏。 */
+        private const val PROJECTION_WAIT_MS = 180000L
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -77,6 +87,7 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var currentDeviceId = -1
 
     @Volatile private var keyEvent = false
+    @Volatile private var keyEventPrev = false
     @Volatile private var projectionGranted = false
     @Volatile private var flashing = false
     @Volatile private var projectionDeferred: CompletableDeferred<Boolean>? = null
@@ -148,8 +159,10 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnConnect.setOnClickListener { connect() }
         binding.btnDisconnect.setOnClickListener { disconnect() }
-        binding.btnSwitchState.setOnClickListener { keyEvent = true }
+        binding.btnStatePrev.setOnClickListener { keyEventPrev = true }
+        binding.btnStateNext.setOnClickListener { keyEvent = true }
         binding.btnFlash.setOnClickListener { showFlashDialog() }
+        binding.btnMenu.setOnClickListener { showOverflowMenu(it) }
 
         MirrorService.MirrorBus.onError = { msg ->
             log("镜像: $msg")
@@ -286,6 +299,7 @@ class MainActivity : AppCompatActivity() {
             // 不能调用 disconnectInternal()（它会 cancelAndJoin 当前连接任务，造成自等待死锁）
             connected = false
             keyEvent = false
+            keyEventPrev = false
             flashing = false
             stopMirrorSession()
             serial?.close()
@@ -328,6 +342,7 @@ class MainActivity : AppCompatActivity() {
     private suspend fun disconnectInternal() {
         connected = false
         keyEvent = false
+        keyEventPrev = false
         flashing = false
         resetStateLabel()
         stopMirrorSession()
@@ -378,6 +393,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** 是否有待处理的状态切换请求（上一个/下一个）。 */
+    private fun switchPending(): Boolean = keyEvent || keyEventPrev
+
+    /** 分段延时：每 50ms 检查一次切换请求，有请求立即返回，让主循环马上切状态。 */
+    private suspend fun delayInterruptible(ms: Long) {
+        var remaining = ms
+        while (remaining > 0) {
+            if (switchPending()) return
+            val step = minOf(50L, remaining)
+            delay(step)
+            remaining -= step
+        }
+    }
+
     private suspend fun CoroutineScope.runDisplayLoop(s: Msu2Serial) {
         var state = 0
         var stateChanged = true
@@ -388,10 +417,12 @@ class MainActivity : AppCompatActivity() {
                 delay(50)
                 continue
             }
-            if (keyEvent) {
-                keyEvent = false
+            var delta = 0
+            if (keyEventPrev) { keyEventPrev = false; delta = -1 }
+            else if (keyEvent) { keyEvent = false; delta = 1 }
+            if (delta != 0) {
                 val prev = state
-                state = (state + 1) % 6
+                state = ((state + delta) % 6 + 6) % 6
                 stateChanged = true
                 if (prev == 5 || state == 5) {
                     if (prev == 5) stopMirrorSession()
@@ -413,7 +444,7 @@ class MainActivity : AppCompatActivity() {
                         if (stateChanged) {
                             s.ack(Msu2Protocol.lcdPhoto(0, 0, 240, 240, Msu2Protocol.PAGE_C3))
                         }
-                        delay(300)
+                        delayInterruptible(300)
                     }
                     4 -> showClock(s, stateChanged)
                     5 -> showMirror(s)
@@ -422,7 +453,7 @@ class MainActivity : AppCompatActivity() {
                 throw e
             } catch (e: Exception) {
                 log("显示异常：${e.message}")
-                delay(500)
+                delayInterruptible(500)
             }
             stateChanged = false
             delay(30)
@@ -444,21 +475,29 @@ class MainActivity : AppCompatActivity() {
         // CPU（y=24）
         if (cpu >= 100) { s.ack(Msu2Protocol.lcdPhotoWb(120, 24, 24, 66, 20 + numAdd, fc, bc)); cpu %= 100 }
         else s.ack(Msu2Protocol.lcdPhotoWb(120, 24, 24, 66, 21 + numAdd, fc, bc))
+        if (switchPending()) return
         s.ack(Msu2Protocol.lcdPhotoWb(144, 24, 48, 66, (cpu / 10) * 2 + numAdd, fc, bc))
+        if (switchPending()) return
         s.ack(Msu2Protocol.lcdPhotoWb(192, 24, 48, 66, (cpu % 10) * 2 + numAdd, fc, bc))
+        if (switchPending()) return
 
         // 内存（y=87）
         var memV = mem
         if (memV >= 100) { s.ack(Msu2Protocol.lcdPhotoWb(120, 87, 24, 66, 20 + numAdd, fc, bc)); memV %= 100 }
         else s.ack(Msu2Protocol.lcdPhotoWb(120, 87, 24, 66, 21 + numAdd, fc, bc))
+        if (switchPending()) return
         s.ack(Msu2Protocol.lcdPhotoWb(144, 87, 48, 66, (memV / 10) * 2 + numAdd, fc, bc))
+        if (switchPending()) return
         s.ack(Msu2Protocol.lcdPhotoWb(192, 87, 48, 66, (memV % 10) * 2 + numAdd, fc, bc))
+        if (switchPending()) return
 
         // 电量（y=150）
         var batV = bat
         if (batV >= 100) { s.ack(Msu2Protocol.lcdPhotoWb(120, 150, 24, 66, 20 + numAdd, fc, bc)); batV %= 100 }
         else s.ack(Msu2Protocol.lcdPhotoWb(120, 150, 24, 66, 21 + numAdd, fc, bc))
+        if (switchPending()) return
         s.ack(Msu2Protocol.lcdPhotoWb(144, 150, 48, 66, (batV / 10) * 2 + numAdd, fc, bc))
+        if (switchPending()) return
         s.ack(Msu2Protocol.lcdPhotoWb(192, 150, 48, 66, (batV % 10) * 2 + numAdd, fc, bc))
     }
 
@@ -469,7 +508,9 @@ class MainActivity : AppCompatActivity() {
         val numAdd = Msu2Protocol.PAGE_ASC64
         if (stateChanged) {
             s.ack(Msu2Protocol.lcdPhoto(0, 0, 240, 240, photoAdd))
+            if (switchPending()) return
             s.ack(Msu2Protocol.lcdAscii32x64Mix(56 + 8, 32, ':', fc, photoAdd, numAdd))
+            if (switchPending()) return
             s.ack(Msu2Protocol.lcdAscii32x64Mix(136 + 8, 32, ':', fc, photoAdd, numAdd))
         }
         val now = LocalTime.now()
@@ -477,12 +518,17 @@ class MainActivity : AppCompatActivity() {
         val m = now.minute
         val sec = now.second
         s.ack(Msu2Protocol.lcdAscii32x64Mix(0 + 8, 32, digitChar(h / 10), fc, photoAdd, numAdd))
+        if (switchPending()) return
         s.ack(Msu2Protocol.lcdAscii32x64Mix(32 + 8, 32, digitChar(h % 10), fc, photoAdd, numAdd))
+        if (switchPending()) return
         s.ack(Msu2Protocol.lcdAscii32x64Mix(80 + 8, 32, digitChar(m / 10), fc, photoAdd, numAdd))
+        if (switchPending()) return
         s.ack(Msu2Protocol.lcdAscii32x64Mix(112 + 8, 32, digitChar(m % 10), fc, photoAdd, numAdd))
+        if (switchPending()) return
         s.ack(Msu2Protocol.lcdAscii32x64Mix(160 + 8, 32, digitChar(sec / 10), fc, photoAdd, numAdd))
+        if (switchPending()) return
         s.ack(Msu2Protocol.lcdAscii32x64Mix(192 + 8, 32, digitChar(sec % 10), fc, photoAdd, numAdd))
-        delay(200)
+        delayInterruptible(200)
     }
 
     /** 屏幕镜像。 */
@@ -491,11 +537,11 @@ class MainActivity : AppCompatActivity() {
             val ok = requestProjection()
             if (!ok) {
                 log("未获得屏幕捕获授权")
-                delay(1500)
+                delayInterruptible(1500)
                 return
             }
             projectionGranted = true
-            delay(400)
+            delayInterruptible(400)
         }
         val frame = MirrorService.MirrorBus.latest
         if (frame != null) {
@@ -506,7 +552,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private suspend fun requestProjection(): Boolean {
-        val result = withTimeoutOrNull(60000) {
+        val result = withTimeoutOrNull(PROJECTION_WAIT_MS) {
             withContext(Dispatchers.Main) {
                 val d = projectionDeferred
                 if (d != null && !d.isCompleted) {
@@ -603,6 +649,180 @@ class MainActivity : AppCompatActivity() {
         builder.setNegativeButton(android.R.string.cancel, null)
         builder.show()
     }
+
+    // ---------------------------------------------------------------
+    // 菜单 / 关于 / 更新
+    // ---------------------------------------------------------------
+
+    private fun showOverflowMenu(anchor: android.view.View) {
+        val menu = PopupMenu(this, anchor)
+        menu.menu.add(0, 1, 0, getString(R.string.menu_about))
+        menu.menu.add(0, 2, 0, getString(R.string.menu_update))
+        menu.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                1 -> showAboutDialog()
+                2 -> checkUpdate()
+            }
+            true
+        }
+        menu.show()
+    }
+
+    private fun showAboutDialog() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.menu_about)
+            .setView(selectableBodyView(getString(R.string.about_content)))
+            .setPositiveButton(R.string.btn_close, null)
+            .show()
+    }
+
+    /** 可长按复制、超长可滚动的弹窗内容视图。 */
+    private fun selectableBodyView(content: String, maxHeightDp: Int = 360): TextView {
+        val d = resources.displayMetrics.density
+        return TextView(this).apply {
+            text = content
+            // setTextIsSelectable 会设置 ArrowKeyMovementMethod（可滚动且支持长按选择复制）；
+            // 之后不能再覆盖 movementMethod，否则会失去选择能力。
+            setTextIsSelectable(true)
+            setMaxHeight((maxHeightDp * d).toInt())
+            setPadding((24 * d).toInt(), (12 * d).toInt(), (24 * d).toInt(), 0)
+        }
+    }
+
+    private fun checkUpdate() {
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.menu_update)
+            .setMessage(R.string.update_checking)
+            .setCancelable(false)
+            .show()
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { fetchLatestRelease() }
+            runOnUiThread {
+                dialog.dismiss()
+                if (result == null) {
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(R.string.menu_update)
+                        .setMessage(R.string.update_failed)
+                        .setPositiveButton(R.string.btn_open) { _, _ -> openUrl(RELEASES_URL) }
+                        .setNegativeButton(R.string.btn_cancel, null)
+                        .show()
+                } else {
+                    val msg = buildString {
+                        append(getString(R.string.update_available, result.tag))
+                        if (!result.body.isNullOrBlank()) {
+                            append("\n\n")
+                            append(getString(R.string.update_changelog))
+                            append("\n")
+                            append(result.body)
+                        }
+                    }
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(R.string.menu_update)
+                        .setView(selectableBodyView(msg))
+                        .setPositiveButton(R.string.btn_open) { _, _ -> openUrl(result.url) }
+                        .setNegativeButton(R.string.btn_cancel, null)
+                        .show()
+                }
+            }
+        }
+    }
+
+    private fun fetchLatestRelease(): ReleaseInfo? = runCatching {
+        fetchFromHtmlPage() ?: fetchFromApi()
+    }.getOrNull()
+
+    /** 优先抓取 GitHub releases 页面（HTML 不受 API 限流影响，国内网络更稳定）。 */
+    private fun fetchFromHtmlPage(): ReleaseInfo? = runCatching {
+        val conn = URL(RELEASES_URL).openConnection() as HttpURLConnection
+        conn.requestMethod = "GET"
+        conn.connectTimeout = 15000
+        conn.readTimeout = 15000
+        conn.setRequestProperty("User-Agent", "Msu2Screen-Android")
+        conn.setRequestProperty("Accept", "text/html,application/xhtml+xml")
+        try {
+            if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                val tag = Regex("""/releases/tag/([^"&]+)""").find(body)?.groupValues?.get(1)
+                if (tag != null) {
+                    ReleaseInfo(tag, "$RELEASES_URL/tag/$tag", extractReleaseNotes(body))
+                } else null
+            } else null
+        } finally {
+            conn.disconnect()
+        }
+    }.getOrNull()
+
+    private fun fetchFromApi(): ReleaseInfo? = runCatching {
+        val conn = URL(LATEST_RELEASE_API).openConnection() as HttpURLConnection
+        conn.requestMethod = "GET"
+        conn.connectTimeout = 10000
+        conn.readTimeout = 10000
+        conn.setRequestProperty("User-Agent", "Msu2Screen-Android")
+        conn.setRequestProperty("Accept", "application/vnd.github+json")
+        try {
+            if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(body)
+                ReleaseInfo(
+                    tag = json.optString("tag_name", "未知版本"),
+                    url = json.optString("html_url", RELEASES_URL),
+                    body = json.optString("body", "").trim().ifEmpty { null }
+                )
+            } else null
+        } finally {
+            conn.disconnect()
+        }
+    }.getOrNull()
+
+    /** 从 releases 页面 HTML 中提取首个非空 markdown-body 文本作为更新日志。 */
+    private fun extractReleaseNotes(html: String): String? {
+        var idx = html.indexOf("markdown-body")
+        while (idx >= 0) {
+            val tagEnd = html.indexOf('>', idx)
+            if (tagEnd >= 0) {
+                var depth = 1
+                var i = tagEnd + 1
+                while (i < html.length) {
+                    val open = html.indexOf("<div", i)
+                    val close = html.indexOf("</div>", i)
+                    if (close == -1) break
+                    if (open != -1 && open < close) {
+                        depth++
+                        i = open + 4
+                    } else {
+                        depth--
+                        if (depth == 0) {
+                            val raw = html.substring(tagEnd + 1, close)
+                            val text = stripHtml(raw)
+                            if (text.isNotBlank()) return text
+                            break
+                        }
+                        i = close + 5
+                    }
+                }
+            }
+            idx = html.indexOf("markdown-body", idx + 1)
+        }
+        return null
+    }
+
+    private fun stripHtml(html: String): String {
+        var s = html
+        // 块级标签换行，保留列表/段落结构
+        s = s.replace(Regex("</?(p|div|li|h[1-6]|ul|ol|pre|br|blockquote|hr)[^>]*>"), "\n")
+        s = s.replace(Regex("<[^>]+>"), "")
+        s = s.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+            .replace("&quot;", "\"").replace("&#39;", "'").replace("&nbsp;", " ")
+        return s.trim().replace(Regex("\\n{3,}"), "\n\n")
+    }
+
+    private fun openUrl(url: String) {
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }.onFailure { log("无法打开链接：${it.message}") }
+    }
+
+    private data class ReleaseInfo(val tag: String, val url: String, val body: String? = null)
 
     // ---------------------------------------------------------------
     // UI
