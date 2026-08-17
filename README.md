@@ -63,3 +63,7 @@ app/src/main/java/com/msu2/android/
 - SFR 读写 `CMD=0x00`；ADC 读取 `CMD=0x08`（CH9 为按键）；
   Flash 操作 `CMD=0x03`；Flash 数据 `CMD=0x04`；LCD 指令 `CMD=0x02`。
 - 详见 `usb/Msu2Protocol.kt`，全部逐字节对齐 Python 源码。
+
+## 截图
+
+<img width="540" height="1230" alt="1" src="https://github.com/user-attachments/assets/6a75e99e-993c-4154-bedc-f80890af9cb6" />
