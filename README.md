@@ -1,6 +1,6 @@
 # MSU2 USB小屏幕Android客户端  
-[下载](https://github.com/SadYuyuko/MSU2-USB-Screen-Android/releases/download/1.0/MSU2-USB-Screen_1.0.apk) 基于 Windows 版 Python Demo（`MSU2_DemoV1.0.py`）移植  
-通过 **USB OTG** 连接 MSU2 副屏（VID `0x1A86` / PID `0xFE0C`，标准 CDC-ACM 虚拟串口，波特率 19200）。
+[下载](https://github.com/SadYuyuko/MSU2-USB-Screen-Android/releases/download/1.0/MSU2-USB-Screen_1.0.apk) 基于Windows版Python Demo (`MSU2_DemoV1.0.py`) 移植  
+通过**USB OTG**连接MSU2小屏幕 (VID`0x1A86`/PID`0xFE0C`，CDC-ACM虚拟串口，波特率19200)  
 
 ## 功能
 
@@ -13,8 +13,8 @@
 | 4 | 时钟（C6 背景 + ASC64 ASCII 字库） |
 | 5 | 屏幕镜像（MediaProjection 截屏 → 等比缩放 → RGB565 → 压缩编码发送） |
 
-另附 **烧录素材** 功能：将 `.bin` 素材烧录到设备 Flash
-（照片类：先擦除后写入；ASC64 字库类：直接写入），可用于出厂素材被覆盖后恢复。
+**烧录**功能：将 `.bin` 素材烧录到设备 Flash  
+（照片类：先擦除后写入；ASC64 字库类：直接写入）
 
 ## 构建
 
@@ -40,7 +40,7 @@
 6. 默认进入 GIF 动图状态；点击「切换状态」或按副屏上实体按键切换状态。
 7. 切到「屏幕镜像」时系统会弹出**屏幕捕获授权**，同意后手机画面即同步到副屏。
 
-> 若 Flash 中素材被改动/损坏导致某些状态空白，请使用「烧录素材」重新烧录对应 .bin。
+> 若 Flash 中素材被改动/损坏导致某些状态空白，请重新烧录对应 `.bin`。
 
 ## 工程结构
 
