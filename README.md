@@ -65,4 +65,5 @@ app/src/main/java/com/msu2/android/
 
 ## 截图
 
-<img width="540" height="1230" alt="1" src="https://github.com/user-attachments/assets/6a75e99e-993c-4154-bedc-f80890af9cb6" />
+<img width="540" height="1230" alt="1" src="https://github.com/user-attachments/assets/bd49422d-32e8-4127-a0da-39e9d00ed1cb" />
+
