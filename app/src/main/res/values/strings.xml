@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">USB小屏幕</string>
+
+    <string name="status_disconnected">未连接</string>
+    <string name="status_connecting">正在连接…</string>
+    <string name="status_connected">已连接</string>
+
+    <string name="btn_connect">连接</string>
+    <string name="btn_disconnect">断开</string>
+    <string name="btn_switch_state">切换状态</string>
+    <string name="btn_flash">烧录素材</string>
+
+    <string name="state_0">GIF 动图</string>
+    <string name="state_1">手机状态(蓝)</string>
+    <string name="state_2">手机状态(红)</string>
+    <string name="state_3">照片</string>
+    <string name="state_4">时钟</string>
+    <string name="state_5">屏幕镜像</string>
+
+    <string name="log_title">运行日志：</string>
+
+    <string name="no_device">未检测到 MSU2 设备，请通过 OTG 线连接</string>
+    <string name="permission_denied">USB 权限被拒绝</string>
+    <string name="connect_failed">连接失败：%1$s</string>
+    <string name="device_detached">MSU2 已断开</string>
+    <string name="flash_title">选择要烧录的素材</string>
+    <string name="flash_params_title">烧录参数</string>
+    <string name="flash_type_photo">图片类（先擦除后写入）</string>
+    <string name="flash_type_zk">字库类（不擦除）</string>
+    <string name="mirror_foreground_notify">MSU2 副屏正在镜像手机屏幕</string>
+</resources>
