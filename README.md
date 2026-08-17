@@ -1,9 +1,9 @@
-# MSU2 USB 小屏幕 — Android 客户端
+# MSU2 USB 小屏幕 Android 客户端
 
-基于 Windows 版 Python Demo（`MSU2_DemoV1.0.py`）协议移植的 Android 应用，
+基于 Windows 版 Python Demo（`MSU2_DemoV1.0.py`）移植  
 通过 **USB OTG** 连接 MSU2 副屏（VID `0x1A86` / PID `0xFE0C`，标准 CDC-ACM 虚拟串口，波特率 19200）。
 
-## 功能（6 状态机，按键 / 按钮切换）
+## 功能
 
 | 状态 | 说明 |
 |---|---|
@@ -31,7 +31,7 @@
    - minSdk 26（Android 8.0） ／ targetSdk 34（Android 14）
    - 需联网同步依赖。
 
-## 真机联调步骤
+## 联调
 
 1. 手机开启「开发者选项」→ 打开 **USB 调试**（仅调试用，非必需）。
 2. 用 **OTG 线** 连接 MSU2 副屏到手机。
@@ -56,14 +56,10 @@ app/src/main/java/com/msu2/android/
 └── services/MirrorService.kt  # MediaProjection 前台服务（Android 14 兼容）
 ```
 
-## 协议说明（简述）
+## 协议说明
 
 - 所有指令为 6 字节包 `[CMD][SUB][D0][D1][D2][D3]`。
 - 握手：设备广播 `00 'MSN' xx` → 主机回复 `00 'MSNCN'` → 设备确认。
 - SFR 读写 `CMD=0x00`；ADC 读取 `CMD=0x08`（CH9 为按键）；
   Flash 操作 `CMD=0x03`；Flash 数据 `CMD=0x04`；LCD 指令 `CMD=0x02`。
 - 详见 `usb/Msu2Protocol.kt`，全部逐字节对齐 Python 源码。
-
-## License
-
-[MIT](LICENSE)
