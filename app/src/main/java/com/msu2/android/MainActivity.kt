@@ -152,9 +152,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ---------------------------------------------------------------
     // 生命周期
-    // ---------------------------------------------------------------
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -240,9 +238,7 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    // ---------------------------------------------------------------
     // 连接 / 断开
-    // ---------------------------------------------------------------
 
     private fun connect() {
         if (connected) return
@@ -383,9 +379,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ---------------------------------------------------------------
     // 状态机
-    // ---------------------------------------------------------------
 
     private suspend fun CoroutineScope.runKeyPoll(s: Msu2Serial) {
         // 等设备完成开机第一帧绘制后再采样，避免读到 0
@@ -597,9 +591,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun digitChar(d: Int): Char = ((d % 10) + 48).toChar()
 
-    // ---------------------------------------------------------------
     // 烧录素材
-    // ---------------------------------------------------------------
 
     private enum class FlashKind { GIF, PHOTO, BIN }
 
@@ -745,10 +737,7 @@ class MainActivity : AppCompatActivity() {
         return frames
     }
 
-    /**
-     * 解析 GIF 每帧的起始时间（ms）。按 GIF89a 规范读取：
-     * 图像描述符(0x2C)对应一帧，前面的图形控制扩展(0x21 0xF9)指定该帧延时（单位 10ms）。
-     */
+    /** 解析 GIF 每帧起始时间（ms）：图像描述符(0x2C)为一帧，其前图形控制扩展(0x21 0xF9)给延时(10ms 单位)。 */
     private fun parseGifFrameTimes(uri: Uri): LongArray? {
         return try {
             val data = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
@@ -1002,9 +991,7 @@ class MainActivity : AppCompatActivity() {
         Msu2Protocol.rgb565Bytes(pixels, w, h, w, out)
     }
 
-    // ---------------------------------------------------------------
     // 菜单 / 关于 / 更新
-    // ---------------------------------------------------------------
 
     private fun showOverflowMenu(anchor: View) {
         val d = resources.displayMetrics.density
@@ -1228,9 +1215,7 @@ class MainActivity : AppCompatActivity() {
 
     private data class ReleaseInfo(val tag: String, val url: String, val body: String? = null)
 
-    // ---------------------------------------------------------------
     // UI
-    // ---------------------------------------------------------------
 
     private fun log(msg: String) {
         runOnUiThread {

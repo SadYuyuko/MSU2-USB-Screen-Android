@@ -12,10 +12,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.IOException
 
-/**
- * MSU2 设备串口封装：打开 CDC-ACM 端口、握手、串行化读写。
- * 所有串口访问通过 [mutex] 串行化，保证多协程（状态机 / 镜像 / 烧录）不交叉。
- */
+/** MSU2 设备串口封装：打开 CDC-ACM、握手、串行化读写（所有访问经 [mutex] 串行化）。 */
 class Msu2Serial(
     private val usbManager: UsbManager,
     private val device: UsbDevice
@@ -26,10 +23,9 @@ class Msu2Serial(
         private const val BUF_SIZE = 4096
         private const val READ_TIMEOUT = 200
         private const val WRITE_TIMEOUT = 3000
-        /** 屏幕数据分块大小：所有指令均为 6 字节，取 6 的倍数（60=10 条指令），
-         *  且不超过 64 字节单包上限，避免设备接收 FIFO 溢出导致整块超时。 */
+        /** 屏幕数据分块大小：6 的倍数（60=10 条指令）且不超 64 字节单包，避免设备 FIFO 溢出。 */
         private const val SCREEN_CHUNK_SIZE = 60
-        /** 每块屏幕数据的写入截止时间：设备消化只有 ~2KB/s，块越小越不容易整块超时。 */
+        /** 每块屏幕数据的写入截止时间：设备消化仅 ~2KB/s，块越小越不容易整块超时。 */
         private const val SCREEN_WRITE_TIMEOUT = 5000
     }
 
@@ -48,7 +44,7 @@ class Msu2Serial(
             ?: throw IOException("无法打开 USB 设备")
         p.open(connection)
         p.setParameters(BAUD, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
-        // 与电脑版 pyserial（rtscts 关闭、RTS 不置位）保持一致，避免设备对 RTS 状态敏感
+        // 与电脑版 pyserial（rtscts 关闭、RTS 不置位）保持一致
         try { p.setDTR(true) } catch (_: Exception) {}
         try { p.setRTS(false) } catch (_: Exception) {}
         port = p
@@ -65,16 +61,11 @@ class Msu2Serial(
         }
     }
 
-    // ---------------------------------------------------------------
     // 握手
-    // ---------------------------------------------------------------
 
-    /**
-     * 与设备握手：等待广播 "00 MSNxx" -> 回复 "00 MSNCN" -> 等待设备确认。
-     * @return 版本号（如 01 -> 1）
-     */
+    /** 与设备握手：等广播 "00 MSNxx" -> 回 "00 MSNCN" -> 等设备确认，返回版本号。 */
     suspend fun handshake(): Int = mutex.withLock {
-        // 重试：设备可能因打开串口/上电需要一点时间才开始广播
+        // 重试：设备上电后需要一点时间才开始广播
         var version = -1
         var lastBytes = ""
         for (attempt in 1..3) {
@@ -134,9 +125,7 @@ class Msu2Serial(
         return false
     }
 
-    // ---------------------------------------------------------------
     // 指令读写（与 Python 语义对齐）
-    // ---------------------------------------------------------------
 
     /** 读 8bit 寄存器，返回 recv[5]。 */
     suspend fun readU8(add: Int): Int = mutex.withLock {
@@ -166,14 +155,7 @@ class Msu2Serial(
         if (resp.size >= 6) resp[5].toInt() and 0xFF else 0
     }
 
-    /**
-     * 发送需要确认的指令（写寄存器 / Flash / LCD），等待设备响应后清空缓冲。
-     * @param waitMs 等待设备响应（≥1 字节）的超时。Flash 擦除按 4KB 扇区进行，
-     *               数百页耗时可达数秒甚至十几秒，必须按擦除量给出足够等待时间，
-     *               否则设备仍在擦除（不服务 USB）时发送写页突发数据会因接收
-     *               缓冲填满导致 bulk 写入超时（rc=-1）。
-     * @param requireResponse true 时若超时未收到任何响应则抛出 IOException
-     */
+    /** 发送需确认指令（写寄存器/Flash/LCD），等设备响应后清空缓冲；Flash 慢操作需按量给足 waitMs。 */
     suspend fun ack(cmd: ByteArray, waitMs: Long = 1000, requireResponse: Boolean = false) {
         mutex.withLock {
             writeRaw(cmd)
@@ -188,19 +170,7 @@ class Msu2Serial(
         mutex.withLock { writeRaw(cmd) }
     }
 
-    /**
-     * 发送屏幕显存数据（LCD_ADD + 编码数据）。
-     *
-     * 设备对屏幕指令流的消化速度只有 ~2KB/s，一帧镜像编码后可达数万字节，
-     * 若一次性写入，usb-serial 的总截止时间（3s）会在中途触发超时（rc=-1），
-     * 造成画面只写一半、指令流被截断导致设备错位，随后“已断开连接”。
-     * 这里按 [SCREEN_CHUNK_SIZE] 分块写入，每块都有独立的 [SCREEN_WRITE_TIMEOUT]
-     * 超时预算，靠设备自身的 USB 背压（RX 缓冲满时 NAK）来限速，
-     * 保证整帧完整送达（帧率受设备速度限制，但不再报错/掉线）。
-     *
-     * [abortCheck] 在每块之间求值：返回 true 时在指令边界（块大小为 6 的倍数）
-     * 安全中止，避免投屏一帧几十秒期间无法响应状态切换。
-     */
+    /** 发送屏幕显存数据：按 [SCREEN_CHUNK_SIZE] 分块写入（每块独立超时、靠设备背压限速），块间可安全中止。 */
     suspend fun sendScreen(cmd: ByteArray, abortCheck: (() -> Boolean)? = null) {
         mutex.withLock {
             var off = 0
@@ -223,9 +193,7 @@ class Msu2Serial(
         mutex.withLock { drainAll() }
     }
 
-    // ---------------------------------------------------------------
     // 底层读写
-    // ---------------------------------------------------------------
 
     private fun writeRaw(data: ByteArray, timeoutMs: Int = WRITE_TIMEOUT) {
         val p = port ?: throw IOException("串口未打开")
@@ -258,7 +226,7 @@ class Msu2Serial(
         return false
     }
 
-    /** 读取并丢弃所有缓冲数据，直到设备静默（连续 3 次读取无数据，即 90ms；有 300ms 硬上限防持续广播挂死）。 */
+    /** 读取并丢弃所有缓冲，直到设备静默（3 次无数据约 90ms，300ms 硬上限防广播挂死）。 */
     private suspend fun drainAll() {
         val deadline = System.currentTimeMillis() + 300
         var silent = 0

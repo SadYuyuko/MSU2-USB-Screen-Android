@@ -15,17 +15,12 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.FileReader
 
-/**
- * 手机状态采集：CPU / 内存 / 电量 / 存储（对应 PC 版 psutil 取数）。
- */
+/** 手机状态采集：CPU / 内存 / 电量 / 存储（对应 PC 版 psutil 取数）。 */
 object StatusProvider {
 
     private const val TAG = "StatusProvider"
 
-    /**
-     * CPU 占用率（%）：读 /proc/stat 汇总行两次（间隔 ~300ms）算差值。
-     * @return 0~100；/proc/stat 不可用时返回 -1（调用方给出提示）。
-     */
+    /** CPU 占用率（%）：读 /proc/stat 汇总行两次（间隔 ~300ms）算差值；不可用时返回 -1。 */
     suspend fun cpuUsage(): Int = withContext(Dispatchers.IO) {
         val t1 = readCpuStat()
         delay(300)

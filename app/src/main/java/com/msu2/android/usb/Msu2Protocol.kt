@@ -1,11 +1,6 @@
 package com.msu2.android.usb
 
-/**
- * MSU2 副屏串口协议（逐字节对齐 Python 版 MSU2_DemoV1.0.py）。
- *
- * 所有指令均为 6 字节数据包：[CMD][SUB][D0][D1][D2][D3]。
- * LCD 常用颜色为 RGB565（如 0xF800 红、0x07E0 绿、0x001F 蓝、0xFFFF 白、0x0000 黑）。
- */
+/** MSU2 副屏串口协议（6 字节包 [CMD][SUB][D0][D1][D2]，逐字节对齐 Python 源码）。 */
 object Msu2Protocol {
 
     // 颜色（RGB565）
@@ -16,9 +11,7 @@ object Msu2Protocol {
     const val BLACK = 0x0000
     const val YELLOW = 0xFFE0
 
-    // ---------------------------------------------------------------
     // MSU2 MINI（V1.6 固件）：160x80 屏幕
-    // ---------------------------------------------------------------
     const val SCREEN_W = 160
     const val SCREEN_H = 80
 
@@ -37,9 +30,7 @@ object Msu2Protocol {
     const val GIF_FRAME_PAGES = 100
     const val GIF_FRAME_COUNT = 36
 
-    // ---------------------------------------------------------------
-    // SFR（寄存器）读写   CMD=0x00, SUB=b'0'(0x30)
-    // ---------------------------------------------------------------
+    // SFR（寄存器）读写   CMD=0x00
 
     /** 读 8bit 寄存器，add 为 16bit 地址。 00 30 00 AH AL 00 */
     fun readU8(add: Int): ByteArray =
@@ -57,17 +48,13 @@ object Msu2Protocol {
     fun writeU16(add: Int, data: Int): ByteArray =
         byteArrayOf(0x00, 0x30, 0xA0.toByte(), (add and 0xFF).toByte(), (data ushr 8).toByte(), (data and 0xFF).toByte())
 
-    // ---------------------------------------------------------------
     // ADC 读取   CMD=0x08（用于读取按键 CH9）
-    // ---------------------------------------------------------------
 
     /** 08 CH 00 00 00 00 */
     fun readAdc(ch: Int): ByteArray =
         byteArrayOf(0x08, (ch and 0xFF).toByte(), 0x00, 0x00, 0x00, 0x00)
 
-    // ---------------------------------------------------------------
     // Flash 操作   CMD=0x03
-    // ---------------------------------------------------------------
 
     /** 读 Flash 字节。 03 00 AH AL 00 00 */
     fun readFlashByte(add: Int): ByteArray =
@@ -89,11 +76,7 @@ object Msu2Protocol {
             ((size % 65536) % 256).toByte()
         )
 
-    /**
-     * 写 Flash 页。erase=true 对应 Python Write_Flash_Page（03 01，自动擦除）；
-     * erase=false 对应 Write_Flash_Page_fast（03 03，区域需已擦除）。
-     * 03 01/03 BH AH AL PN
-     */
+    /** 写 Flash 页（erase=true 自动擦除 03 01，false 快速写 03 03）。 03 01/03 BH AH AL PN */
     fun writeFlashPage(pageAdd: Int, pageNum: Int, erase: Boolean): ByteArray =
         byteArrayOf(
             0x03, if (erase) 0x01 else 0x03,
@@ -111,9 +94,7 @@ object Msu2Protocol {
             (d2 and 0xFF).toByte(), (d3 and 0xFF).toByte()
         )
 
-    // ---------------------------------------------------------------
     // LCD 指令   CMD=0x02
-    // ---------------------------------------------------------------
 
     /** 设置起始坐标。 02 00 XH XL YH YL */
     fun lcdSetXY(x: Int, y: Int): ByteArray =
@@ -127,12 +108,7 @@ object Msu2Protocol {
     fun lcdSetColor(fc: Int, bc: Int): ByteArray =
         byteArrayOf(0x02, 0x02, (fc ushr 8).toByte(), (fc and 0xFF).toByte(), (bc ushr 8).toByte(), (bc and 0xFF).toByte())
 
-    /**
-     * LCD 显示指令（6 字节）。 02 03 op d0 d1 d2
-     * op=0 彩色图片(page)  op=1 单色图片wb(page)  op=2 ASCII(ch,font page)
-     * op=4 单色混合(page)  op=5 ASCII混合(ch,font page)  op=7 载入显存地址  op=8 显示RAM(size)
-     * op=9 提交刷新
-     */
+    /** LCD 显示指令（02 03 op d0 d1 d2；op: 0 彩图 1 单色 2 ASCII 7 载入显存 8 提交 9 刷新）。 */
     fun lcdDisplay(op: Int, d0: Int, d1: Int, d2: Int): ByteArray =
         byteArrayOf(
             0x02, 0x03, (op and 0xFF).toByte(),
@@ -154,18 +130,13 @@ object Msu2Protocol {
     fun lcdState(s: Int): ByteArray =
         byteArrayOf(0x02, 0x03, 0x0A, (s and 0xFF).toByte(), 0x00, 0x00)
 
-    // ---------------------------------------------------------------
     // 复合指令
-    // ---------------------------------------------------------------
 
     /** 载入显存写入地址（Python LCD_ADD）。 */
     fun lcdLoadAddr(x: Int, y: Int, w: Int, h: Int): ByteArray =
         lcdSetXY(x, y) + lcdSetSize(w, h) + lcdDisplay(7, 0, 0, 0)
 
-    /**
-     * 显示 Flash 中的彩色图片（Python LCD_Photo）。
-     * @param pageAdd 图片所在 Flash 页
-     */
+    /** 显示 Flash 中的彩色图片（Python LCD_Photo，pageAdd 为图片所在 Flash 页）。 */
     fun lcdPhoto(x: Int, y: Int, w: Int, h: Int, pageAdd: Int): ByteArray =
         lcdSetXY(x, y) + lcdSetSize(w, h) + lcdDisplay(0, pageAdd / 256, pageAdd % 256, 0)
 
@@ -173,22 +144,14 @@ object Msu2Protocol {
     fun lcdPhotoWb(x: Int, y: Int, w: Int, h: Int, pageAdd: Int, fc: Int, bc: Int): ByteArray =
         lcdSetXY(x, y) + lcdSetSize(w, h) + lcdSetColor(fc, bc) + lcdDisplay(1, pageAdd / 256, pageAdd % 256, 0)
 
-    /**
-     * 显示 32x64 ASCII 字符（Python LCD_ASCII_32X64_MIX，bg=字库背景页）。
-     * 注意：该指令为 02 03 05 CH NH NL，仅 6 字节、无尾部 0。
-     */
+    /** 显示 32x64 ASCII 字符（02 03 05 CH NH NL，6 字节无尾部 0）。 */
     fun lcdAscii32x64Mix(x: Int, y: Int, ch: Char, fc: Int, bgPage: Int, numPage: Int): ByteArray =
         lcdSetXY(x, y) + lcdSetColor(fc, bgPage) +
             byteArrayOf(0x02, 0x03, 0x05, (ch.code and 0xFF).toByte(), (numPage / 256).toByte(), (numPage % 256).toByte())
 
-    // ---------------------------------------------------------------
     // RGB565 / 屏幕数据编码
-    // ---------------------------------------------------------------
 
-    /**
-     * 将像素转换为 16bit RGB565 小端字节流（逐字节对齐 Python Screen_Date_get）。
-     * 高5位R + 中6位G + 低5位B。
-     */
+    /** 将像素转成 RGB565 字节流（高5R+中6G+低5B，对齐 Python Screen_Date_get）。 */
     fun rgb565Bytes(pixels: IntArray, width: Int, height: Int, stride: Int, out: ByteArray) {
         var o = 0
         for (y in 0 until height) {
@@ -204,10 +167,7 @@ object Msu2Protocol {
         }
     }
 
-    /**
-     * 将 RGB565 字节流编码为屏幕显示指令（逐字节对齐 Python Screen_Date_Process）。
-     * 含主色压缩（02 04）+ 差异像素（04）+ 分页提交（02 03 08）。
-     */
+    /** 将 RGB565 编码为屏幕指令（主色 02 04 + 差异 04 + 分页提交 02 03 08）。 */
     fun encodeScreenData(rgb565: ByteArray, xSize: Int, ySize: Int): ByteArray {
         val total = xSize * ySize * 2
         val out = java.io.ByteArrayOutputStream(total * 7 / 6)

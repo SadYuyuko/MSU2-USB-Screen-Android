@@ -31,12 +31,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-/**
- * 屏幕镜像前台服务（MediaProjection）。
- *
- * Android 14 要求：先 startForeground(mediaProjection 类型)，再 getMediaProjection()，
- * 再 createVirtualDisplay()。每次进入镜像状态需重新获得用户授权。
- */
+/** 屏幕镜像前台服务（MediaProjection；Android 14 需先 startForeground 再 getMediaProjection）。 */
 class MirrorService : Service() {
 
     companion object {
@@ -163,10 +158,7 @@ class MirrorService : Service() {
         }
     }
 
-    /**
-     * 投屏捕获尺寸：按 80x160（竖屏）捕获手机完整画面（MediaProjection 等比缩放、留细黑边），
-     * 随后在软件里旋转 90° 成 160x80 发送给设备；用户把小屏竖着拿即可看到手机全部内容。
-     */
+    /** 投屏捕获尺寸：按 80x160（竖屏）捕获完整画面，再软件旋转 90° 成 160x80 发送。 */
     private fun computeFitSize(): Pair<Int, Int> =
         Msu2Protocol.MIRROR_W to Msu2Protocol.MIRROR_H
 

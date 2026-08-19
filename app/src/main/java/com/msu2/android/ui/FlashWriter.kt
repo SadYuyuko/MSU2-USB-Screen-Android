@@ -5,11 +5,7 @@ import com.msu2.android.usb.Msu2Serial
 import kotlinx.coroutines.delay
 import java.io.ByteArrayOutputStream
 
-/**
- * 将用户选取的 .bin 素材烧录到 MSU2 Flash。
- * 照片类用 Python Write_Flash_Photo_fast 流程（先擦除，03 03 写页）；
- * 字库类（ASC64）用 Write_Flash_ZK 流程（不擦除，03 01 写页，末 6 字节非点阵）。
- */
+/** 将素材 .bin 烧录到 MSU2 Flash：照片类先擦除后写（03 03），字库类直接写（03 01）。 */
 class FlashWriter {
 
     /** MSU2 Flash 总容量 1024KB，每页 256B，共 4096 页。 */
@@ -17,14 +13,7 @@ class FlashWriter {
         const val FLASH_TOTAL_PAGES = 4096
     }
 
-    /**
-     * 烧录指定数据。
-     * @param data 素材原始字节
-     * @param page 起始 Flash 页
-     * @param zk true=字库类（不擦除，末 6 字节非点阵）；false=图片类（先擦除）
-     * @param onLog 日志回调
-     * @param onProgress 进度回调（已完成页数, 总页数）
-     */
+    /** 烧录指定数据：data 素材字节，page 起始页，zk 字库类(不擦除)或图片类(先擦除)。 */
     suspend fun flash(
         serial: Msu2Serial,
         data: ByteArray,
@@ -48,12 +37,10 @@ class FlashWriter {
         if (!zk) {
             // 照片：先擦除区域，再快速写入
             onLog("擦除 $totalPages 页 (起始页 $page)")
-            // 擦除按 4KB 扇区进行（每 16 页一扇区，每扇区约 50~400ms），
-            // 必须等设备真正擦完（收到擦除完成响应）才开始写页。等待超时按页数放大，
-            // 否则设备忙于擦除、不服务 USB，写页突发数据会因接收缓冲填满而 bulk 写入超时（rc=-1）。
+            // 擦除按 4KB 扇区（16 页）进行，等待超时须按页数放大，避免擦除期间 USB 缓冲填满超时
             val eraseTimeoutMs = maxOf(10_000L, totalPages * 100L)
             serial.ack(Msu2Protocol.eraseFlashPage(page, totalPages), waitMs = eraseTimeoutMs, requireResponse = true)
-            // 擦除完成后稍作稳定，确保设备状态机回到空闲
+            // 擦除完成后稍作稳定
             delay(200)
         }
 

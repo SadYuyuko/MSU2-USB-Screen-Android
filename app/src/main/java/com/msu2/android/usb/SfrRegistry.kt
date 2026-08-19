@@ -1,8 +1,6 @@
 package com.msu2.android.usb
 
-/**
- * MSN 数据字典解析（逐字节对齐 Python Read_M_SFR_Data / Read_MSN_Data / Write_MSN_Data）。
- */
+/** MSN 数据字典解析（逐字节对齐 Python Read_M_SFR_Data / Read_MSN_Data / Write_MSN_Data）。 */
 class SfrEntry(
     val name: ByteArray,
     val unit: ByteArray,
