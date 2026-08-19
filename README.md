@@ -1,5 +1,5 @@
 # MSU2 USB小屏幕Android端程序  
-基于Windows版Python Demo (`MSU2_DemoV1.0.py`) 移植  
+基于Windows版Python (`MSU2_MINI_DemoV1.6.py`) 移植  
 通过**USB OTG**连接MSU2小屏幕 (VID`0x1A86`/PID`0xFE0C`，CDC-ACM虚拟串口，波特率19200)  
 
 ## 功能
