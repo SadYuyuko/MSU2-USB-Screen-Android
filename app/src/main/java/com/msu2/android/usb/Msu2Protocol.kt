@@ -56,16 +56,6 @@ object Msu2Protocol {
 
     // Flash 操作   CMD=0x03
 
-    /** 读 Flash 字节。 03 00 AH AL 00 00 */
-    fun readFlashByte(add: Int): ByteArray =
-        byteArrayOf(
-            0x03, 0x00,
-            (add / (256 * 256) and 0xFF).toByte(),
-            ((add % 65536) / 256).toByte(),
-            ((add % 65536) % 256).toByte(),
-            0x00
-        )
-
     /** 擦除指定区域（add 与 size 均按 16bit 取低字节）。 03 02 AH AL SH SL */
     fun eraseFlashPage(add: Int, size: Int): ByteArray =
         byteArrayOf(
@@ -125,10 +115,6 @@ object Msu2Protocol {
             ((color ushr 8) and 0xFF).toByte(),
             (color and 0xFF).toByte()
         )
-
-    /** 设置显示方向（02 03 0A S 00 00，V1.6 LCD_State；S=1 旋转 90° 竖屏）。 */
-    fun lcdState(s: Int): ByteArray =
-        byteArrayOf(0x02, 0x03, 0x0A, (s and 0xFF).toByte(), 0x00, 0x00)
 
     // 复合指令
 

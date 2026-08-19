@@ -148,13 +148,6 @@ class Msu2Serial(
         if (resp.size >= 6) ((resp[4].toInt() and 0xFF) * 256 + (resp[5].toInt() and 0xFF)) else 0
     }
 
-    /** 读 Flash 字节，返回 recv[5]。 */
-    suspend fun readFlashByte(add: Int): Int = mutex.withLock {
-        writeRaw(Msu2Protocol.readFlashByte(add))
-        val resp = readResponse()
-        if (resp.size >= 6) resp[5].toInt() and 0xFF else 0
-    }
-
     /** 发送需确认指令（写寄存器/Flash/LCD），等设备响应后清空缓冲；Flash 慢操作需按量给足 waitMs。 */
     suspend fun ack(cmd: ByteArray, waitMs: Long = 1000, requireResponse: Boolean = false) {
         mutex.withLock {
@@ -163,11 +156,6 @@ class Msu2Serial(
             if (requireResponse && !got) throw IOException("设备无响应（等待 ${waitMs}ms）")
             drainAll()
         }
-    }
-
-    /** 发送无需确认的指令（批量数据）。 */
-    suspend fun writeRawBytes(cmd: ByteArray) {
-        mutex.withLock { writeRaw(cmd) }
     }
 
     /** 发送屏幕显存数据：按 [SCREEN_CHUNK_SIZE] 分块写入（每块独立超时、靠设备背压限速），块间可安全中止。 */
