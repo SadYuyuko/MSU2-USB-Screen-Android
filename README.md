@@ -1,11 +1,7 @@
-# MSU2 MINI USB小屏 Android 客户端
+# MSU2 USB小屏幕Android端程序
 
-[下载](https://github.com/SadYuyuko/MSU2-USB-Screen-Android/releases) ｜ 基于 Windows 版 Python Demo（`MSU2_MINI_DemoV1.6`）移植
-
-通过 **USB OTG** 连接 **MSU2 MINI** 副屏（**160×80**，V1.6 固件/素材布局）。
-设备为 CDC-ACM 虚拟串口：VID `0x1A86` / PID `0xFE0C`，波特率 19200。
-
-> 本客户端适配的是 **160×80 的 MSU2 MINI**；旧款 240×240 的 MSU2 请使用对应旧版程序。
+基于Windows版Python (`MSU2_MINI_DemoV1.6.py`) 移植，适配 **MSU2 MINI（160×80 屏，V1.6 素材布局）**  
+通过**USB OTG**连接MSU2小屏幕 (VID`0x1A86`/PID`0xFE0C`，CDC-ACM虚拟串口，波特率19200)
 
 ## 功能
 
@@ -18,31 +14,31 @@
 | 4 | 时钟（CLK_BG 背景 + ASC64 ASCII 字库） |
 | 5 | 屏幕镜像（MediaProjection 截屏 → 竖屏等比缩放 → RGB565 → 压缩编码发送） |
 
-**烧录**（点击「烧录」后选择类型）：
+**烧录**（点击「烧录」→ 选择类型 → 确认 → 选文件）：
 
 | 类型 | 说明 |
 |---|---|
-| GIF（36帧 160x80 自动处理） | 选择动画 GIF，按帧解析、按帧率自动取 36 帧、缩放至 160×80，烧录到页 0 |
-| 图片（jpg/png 160x80 烧录至指定页） | 选择图片，缩放至 160×80，烧录到时钟背景(3826)/照片(3926)/自定义页 |
-| 固件（.bin 原始数据） | 原始数据，按指定页与类型（图片先擦除 / 字库不擦除）烧录 |
+| GIF（36帧 160x80 自动处理） | 选择动画 GIF，按帧解析、按帧率自动取 36 帧并缩放至 160×80，烧录到页 0 |
+| 图片（jpg/png 160x80 烧录至指定页） | 缩放至 160×80，烧录到时钟背景(3826)/照片(3926)/自定义页 |
+| 固件（.bin 原始数据） | 原始数据，按指定页与类型烧录（图片先擦除 / 字库不擦除） |
 
 ## 构建
 
-1. 安装 **Android Studio**（建议 Hedgehog 2023.1.1 及以上）。
+1. 安装 **Android Studio**（版本建议 Hedgehog 2023.1.1 及以上）。
 2. `File → Open` 选择本目录，等待 Gradle 同步
    （首次会自动下载 Gradle 与依赖；`usb-serial-for-android` 来自 JitPack）。
 3. **重要：Gradle JDK 必须为 JDK 17 或 21**。
    `File → Settings → Build, Execution, Deployment → Build Tools → Gradle → Gradle JDK`
    选择 17/21（建议直接用 Android Studio 自带的 JBR）。
-   若选了 JDK 25+，Gradle 的内嵌 Kotlin 编译器可能无法解析其版本号，同步会报错。
+   若选了 JDK 25+，Gradle 的内嵌 Kotlin 编译器无法解析其版本号，同步会报错。
 4. `Build → Build APK(s)` 或直接 `Run` 到真机。
-   - minSdk 26（Android 8.0）／ targetSdk 34（Android 14）
+   - minSdk 26（Android 8.0） ／ targetSdk 34（Android 14）
    - 需联网同步依赖。
 
 ## 联调
 
 1. 手机开启「开发者选项」→ 打开 **USB 调试**（仅调试用，非必需）。
-2. 用 **OTG 线** 连接 MSU2 MINI 副屏到手机。
+2. 用 **OTG 线** 连接 MSU2 副屏到手机。
 3. 首次启动 App：授予「通知」权限（用于屏幕镜像前台服务通知）。
 4. 点击「连接」，同意系统 USB 授权弹窗。
 5. 日志区显示“设备连接完成，版本 xx”及数据字典即成功。
@@ -73,3 +69,7 @@ app/src/main/java/com/msu2/android/
   Flash 操作 `CMD=0x03`；Flash 数据 `CMD=0x04`；LCD 指令 `CMD=0x02`。
 - 屏幕数据（投屏）编码：256 字节/页，每页 `02 04 主色` + `04 索引 d0 d1 d2 d3` 差异像素 + `02 03 08` 提交。
 - 详见 `usb/Msu2Protocol.kt`，全部逐字节对齐 `MSU2_MINI_DemoV1.6` 源码。
+
+## 截图
+
+<img width="540" height="1230" alt="1" src="https://github.com/user-attachments/assets/bd49422d-32e8-4127-a0da-39e9d00ed1cb" />
