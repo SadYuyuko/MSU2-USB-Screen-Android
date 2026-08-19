@@ -22,7 +22,9 @@
 | 图片（jpg/png 160x80 烧录至指定页） | 缩放至 160×80，烧录到时钟背景(3826)/照片(3926)/自定义页 |
 | 固件（.bin 原始数据） | 原始数据，按指定页与类型烧录（图片先擦除 / 字库不擦除） |
 
-注：由于Android 8.0后限制`/proc/stat`读取，高版本Android核心显示为00  
+注：
+ - 由于Android 8.0后限制`/proc/stat`读取，高版本Android核心显示为00
+ - ADB执行`appops set com.msu2.android PROJECT_MEDIA allow`可避免每次切到投屏功能时都出现授权弹窗  
 
 ## 构建
 
