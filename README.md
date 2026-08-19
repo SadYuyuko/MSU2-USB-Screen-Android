@@ -1,5 +1,5 @@
-# MSU2 USB小屏幕Android APP  
-[下载](https://github.com/SadYuyuko/MSU2-USB-Screen-Android/releases/download/1.1/MSU2-USB-Screen_1.1.apk) 基于Windows版Python Demo (`MSU2_DemoV1.0.py`) 移植  
+# MSU2 USB小屏幕Android端程序  
+基于Windows版Python Demo (`MSU2_DemoV1.0.py`) 移植  
 通过**USB OTG**连接MSU2小屏幕 (VID`0x1A86`/PID`0xFE0C`，CDC-ACM虚拟串口，波特率19200)  
 
 ## 功能
