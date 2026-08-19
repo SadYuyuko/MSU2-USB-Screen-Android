@@ -1,6 +1,6 @@
 # MSU2 USB小屏幕Android端程序
 
-基于Windows版Python (`MSU2_MINI_DemoV1.6.py`) 移植，适配 **MSU2 MINI（160×80 屏，V1.6 素材布局）**  
+基于Windows版Python (`MSU2_MINI_DemoV1.6.py`) 移植，适用于 **MSU2 MINI 160×80 0.96寸小屏幕**  
 通过**USB OTG**连接MSU2小屏幕 (VID`0x1A86`/PID`0xFE0C`，CDC-ACM虚拟串口，波特率19200)
 
 ## 功能
@@ -14,7 +14,7 @@
 | 4 | 时钟（CLK_BG 背景 + ASC64 ASCII 字库） |
 | 5 | 屏幕镜像（MediaProjection 截屏 → 竖屏等比缩放 → RGB565 → 压缩编码发送） |
 
-**烧录**（点击「烧录」→ 选择类型 → 确认 → 选文件）：
+**烧录**：
 
 | 类型 | 说明 |
 |---|---|
@@ -72,4 +72,4 @@ app/src/main/java/com/msu2/android/
 
 ## 截图
 
-<img width="540" height="1230" alt="1" src="https://github.com/user-attachments/assets/bd49422d-32e8-4127-a0da-39e9d00ed1cb" />
+<img width="540" height="1230" alt="0" src="https://github.com/user-attachments/assets/ece7b966-d781-4474-8761-f28c9b2fc77a" />
