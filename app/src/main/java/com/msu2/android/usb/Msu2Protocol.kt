@@ -16,20 +16,26 @@ object Msu2Protocol {
     const val BLACK = 0x0000
     const val YELLOW = 0xFFE0
 
-    /** Flash 页布局（页 = 256B，出厂已烧录） */
-    const val PAGE_IMG1 = 0        // 1.bin    240x240 彩色
-    const val PAGE_IMG2 = 450
-    const val PAGE_IMG3 = 900
-    const val PAGE_IMG4 = 1350
-    const val PAGE_IMG5 = 1800
-    const val PAGE_IMG6 = 2250
-    const val PAGE_C3 = 2700
-    const val PAGE_C6 = 3150
-    const val PAGE_DEMO1 = 3600    // 240x240 单色背景
-    const val PAGE_N48X66 = 3629   // 48x66 数码管数字
-    const val PAGE_ASC64 = 3651    // 32x64 ASCII 字库
-    const val PAGE_LOGO = 3779
-    const val PAGE_J1 = 3791
+    // ---------------------------------------------------------------
+    // MSU2 MINI（V1.6 固件）：160x80 屏幕
+    // ---------------------------------------------------------------
+    const val SCREEN_W = 160
+    const val SCREEN_H = 80
+
+    /** 投屏竖屏（旋转 90° 后）逻辑尺寸：80 宽 × 160 高。 */
+    const val MIRROR_W = 80
+    const val MIRROR_H = 160
+
+    /** V1.6 Flash 页布局（页 = 256B，出厂已烧录，与 MSU2_MINI_DemoV1.6 一致） */
+    const val PAGE_ASC64 = 3651       // 32x64 ASCII 字库
+    const val PAGE_CLK_BG = 3826      // 时钟背景 160x80 彩色，100 页
+    const val PAGE_PH1 = 3926         // 照片 160x80 彩色，100 页
+    const val PAGE_N24X33 = 4026      // 24x33 数码管字库（页+0..9 数字，+10 百位“1”，+11 空白）
+    const val PAGE_MP1 = 4038         // 手机状态单色背景 160x80
+
+    /** GIF 动图：160x80 彩色，每帧 100 页，共 36 帧（页 0,100,...,3500） */
+    const val GIF_FRAME_PAGES = 100
+    const val GIF_FRAME_COUNT = 36
 
     // ---------------------------------------------------------------
     // SFR（寄存器）读写   CMD=0x00, SUB=b'0'(0x30)
@@ -122,16 +128,16 @@ object Msu2Protocol {
         byteArrayOf(0x02, 0x02, (fc ushr 8).toByte(), (fc and 0xFF).toByte(), (bc ushr 8).toByte(), (bc and 0xFF).toByte())
 
     /**
-     * LCD 显示指令。 02 03 op d0 d1 d2 d3
+     * LCD 显示指令（6 字节）。 02 03 op d0 d1 d2
      * op=0 彩色图片(page)  op=1 单色图片wb(page)  op=2 ASCII(ch,font page)
      * op=4 单色混合(page)  op=5 ASCII混合(ch,font page)  op=7 载入显存地址  op=8 显示RAM(size)
      * op=9 提交刷新
      */
-    fun lcdDisplay(op: Int, d0: Int, d1: Int, d2: Int, d3: Int): ByteArray =
+    fun lcdDisplay(op: Int, d0: Int, d1: Int, d2: Int): ByteArray =
         byteArrayOf(
             0x02, 0x03, (op and 0xFF).toByte(),
             (d0 and 0xFF).toByte(), (d1 and 0xFF).toByte(),
-            (d2 and 0xFF).toByte(), (d3 and 0xFF).toByte()
+            (d2 and 0xFF).toByte()
         )
 
     /** 设置压缩模式主色（02 04 RR GG BB AA，color 按 32bit 大端）。 */
@@ -144,24 +150,28 @@ object Msu2Protocol {
             (color and 0xFF).toByte()
         )
 
+    /** 设置显示方向（02 03 0A S 00 00，V1.6 LCD_State；S=1 旋转 90° 竖屏）。 */
+    fun lcdState(s: Int): ByteArray =
+        byteArrayOf(0x02, 0x03, 0x0A, (s and 0xFF).toByte(), 0x00, 0x00)
+
     // ---------------------------------------------------------------
     // 复合指令
     // ---------------------------------------------------------------
 
     /** 载入显存写入地址（Python LCD_ADD）。 */
     fun lcdLoadAddr(x: Int, y: Int, w: Int, h: Int): ByteArray =
-        lcdSetXY(x, y) + lcdSetSize(w, h) + lcdDisplay(7, 0, 0, 0, 0)
+        lcdSetXY(x, y) + lcdSetSize(w, h) + lcdDisplay(7, 0, 0, 0)
 
     /**
      * 显示 Flash 中的彩色图片（Python LCD_Photo）。
      * @param pageAdd 图片所在 Flash 页
      */
     fun lcdPhoto(x: Int, y: Int, w: Int, h: Int, pageAdd: Int): ByteArray =
-        lcdSetXY(x, y) + lcdSetSize(w, h) + lcdDisplay(0, pageAdd / 256, pageAdd % 256, 0, 0)
+        lcdSetXY(x, y) + lcdSetSize(w, h) + lcdDisplay(0, pageAdd / 256, pageAdd % 256, 0)
 
     /** 显示 Flash 中的单色图片（Python LCD_Photo_wb）。 */
     fun lcdPhotoWb(x: Int, y: Int, w: Int, h: Int, pageAdd: Int, fc: Int, bc: Int): ByteArray =
-        lcdSetXY(x, y) + lcdSetSize(w, h) + lcdSetColor(fc, bc) + lcdDisplay(1, pageAdd / 256, pageAdd % 256, 0, 0)
+        lcdSetXY(x, y) + lcdSetSize(w, h) + lcdSetColor(fc, bc) + lcdDisplay(1, pageAdd / 256, pageAdd % 256, 0)
 
     /**
      * 显示 32x64 ASCII 字符（Python LCD_ASCII_32X64_MIX，bg=字库背景页）。
@@ -239,14 +249,14 @@ object Msu2Protocol {
                     out.write(flashDataWrite(i, byteAt(b), byteAt(b + 1), byteAt(b + 2), byteAt(b + 3)))
                 }
             }
-            out.write(lcdDisplay(8, 1, 0, 0, 0))
+            out.write(lcdDisplay(8, 1, 0, 0))
         } else {
             // 末页不足 256B：64 组全量发送（含 0xFF 补齐），不压缩（对齐 Python 末页分支）
             for (i in 0 until 64) {
                 val b = pos + i * 4
                 out.write(flashDataWrite(i, byteAt(b), byteAt(b + 1), byteAt(b + 2), byteAt(b + 3)))
             }
-            out.write(lcdDisplay(8, 0, remain and 0xFF, 0, 0))
+            out.write(lcdDisplay(8, 0, remain and 0xFF, 0))
         }
     }
 }

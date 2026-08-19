@@ -30,7 +30,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlin.math.min
 
 /**
  * 屏幕镜像前台服务（MediaProjection）。
@@ -79,6 +78,7 @@ class MirrorService : Service() {
     private var imageReader: ImageReader? = null
     private var captureJob: Job? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    @Volatile private var lastLoggedSize = -1
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -163,17 +163,12 @@ class MirrorService : Service() {
         }
     }
 
-    /** 等比缩放屏幕到 240x240 内的尺寸（保持纵横比）。 */
-    private fun computeFitSize(): Pair<Int, Int> {
-        val dm = resources.displayMetrics
-        val sw = dm.widthPixels
-        val sh = dm.heightPixels
-        if (sw <= 0 || sh <= 0) return 240 to 240
-        val scale = min(240f / sw, 240f / sh)
-        val w = (sw * scale).toInt().coerceAtLeast(1)
-        val h = (sh * scale).toInt().coerceAtLeast(1)
-        return w to h
-    }
+    /**
+     * 投屏捕获尺寸：按 80x160（竖屏）捕获手机完整画面（MediaProjection 等比缩放、留细黑边），
+     * 随后在软件里旋转 90° 成 160x80 发送给设备；用户把小屏竖着拿即可看到手机全部内容。
+     */
+    private fun computeFitSize(): Pair<Int, Int> =
+        Msu2Protocol.MIRROR_W to Msu2Protocol.MIRROR_H
 
     private fun acquireAndPublish() {
         val ir = imageReader ?: return
@@ -201,10 +196,24 @@ class MirrorService : Service() {
                     o += pixelStride
                 }
             }
-            val rgb = ByteArray(w * h * 2)
-            Msu2Protocol.rgb565Bytes(ints, w, h, w, rgb)
-            val data = Msu2Protocol.encodeScreenData(rgb, w, h)
-            MirrorBus.latest = MirrorBus.Frame(data, (240 - w) / 2, (240 - h) / 2, w, h)
+            // 软件旋转 90° 顺时针：原(w×h) -> 新(h×w)，new(nx,ny)=old(W-1-ny,nx)
+            val rw = h
+            val rh = w
+            val rotated = IntArray(rw * rh)
+            for (ny in 0 until rh) {
+                val srcCol = w - 1 - ny
+                for (nx in 0 until rw) {
+                    rotated[ny * rw + nx] = ints[nx * w + srcCol]
+                }
+            }
+            val rgb = ByteArray(rw * rh * 2)
+            Msu2Protocol.rgb565Bytes(rotated, rw, rh, rw, rgb)
+            val data = Msu2Protocol.encodeScreenData(rgb, rw, rh)
+            if (data.size != lastLoggedSize) {
+                lastLoggedSize = data.size
+                Log.i(TAG, "frame ${w}x$h 旋转→${rw}x$rh 编码${data.size}B")
+            }
+            MirrorBus.latest = MirrorBus.Frame(data, 0, 0, rw, rh)
         } catch (e: Exception) {
             Log.e(TAG, "acquire frame failed", e)
         } finally {

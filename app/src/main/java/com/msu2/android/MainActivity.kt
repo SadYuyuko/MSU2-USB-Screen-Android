@@ -6,19 +6,28 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Movie
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.text.Editable
 import android.text.InputType
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.PopupMenu
-import android.widget.RadioButton
+import android.widget.PopupWindow
 import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
@@ -30,7 +39,10 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.google.android.material.color.DynamicColors
+import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.shape.CornerFamily
+import com.google.android.material.shape.MaterialShapeDrawable
 import com.hoho.android.usbserial.driver.SerialTimeoutException
 import com.hoho.android.usbserial.driver.UsbSerialProber
 import com.msu2.android.databinding.ActivityMainBinding
@@ -71,7 +83,7 @@ class MainActivity : AppCompatActivity() {
         private const val REPO_URL = "https://github.com/SadYuyuko/MSU2-USB-Screen-Android"
         private const val RELEASES_URL = "$REPO_URL/releases"
         private const val LATEST_RELEASE_API = "https://api.github.com/repos/SadYuyuko/MSU2-USB-Screen-Android/releases/latest"
-        /** 投屏授权等待上限：权限弹窗出现后用户有充足时间同意，避免超时误判为拒绝而自动关闭投屏。 */
+        /** 投屏授权等待上限，避免超时误判为拒绝。 */
         private const val PROJECTION_WAIT_MS = 180000L
     }
 
@@ -92,6 +104,9 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var flashing = false
     @Volatile private var projectionDeferred: CompletableDeferred<Boolean>? = null
     @Volatile private var permissionContinuation: kotlin.coroutines.Continuation<Boolean>? = null
+    private var mirrorInfoLogged = false
+    private var cpuWarned = false
+    private var lastProgressRender = 0L
     private var progressStart = -1
     private var progressDone = false
 
@@ -181,8 +196,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 注册 USB 相关广播（整个 Activity 生命周期内保持注册，
-        // 避免 USB 权限对话框导致 onPause 时错过权限结果广播）
+        // 整个 Activity 生命周期内保持注册 USB 广播，避免权限弹窗导致 onPause 错过结果
         registerUsbReceiver()
 
         // 检查是否已连接设备
@@ -206,7 +220,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** 沉浸式：内容延伸到状态栏/导航栏后，为根布局加上系统栏 insets + 12dp 边距。 */
+    /** 沉浸式：根布局应用系统栏 insets + 12dp 边距。 */
     private fun applyWindowInsets() {
         val pad = (12 * resources.displayMetrics.density).toInt()
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { v, insets ->
@@ -296,7 +310,7 @@ class MainActivity : AppCompatActivity() {
             throw e
         } catch (e: Exception) {
             log(getString(R.string.connect_failed, e.message ?: "未知错误"))
-            // 不能调用 disconnectInternal()（它会 cancelAndJoin 当前连接任务，造成自等待死锁）
+            // 勿调 disconnectInternal()：cancelAndJoin 当前任务会自等死锁
             connected = false
             keyEvent = false
             keyEventPrev = false
@@ -374,9 +388,12 @@ class MainActivity : AppCompatActivity() {
     // ---------------------------------------------------------------
 
     private suspend fun CoroutineScope.runKeyPoll(s: Msu2Serial) {
+        // 等设备完成开机第一帧绘制后再采样，避免读到 0
+        delay(300)
         val adc1 = s.readAdc(9)
         val adc2 = s.readAdc(9)
-        val adcDet = (adc1 + adc2) / 2.0 - 125.0
+        val adc3 = s.readAdc(9)
+        val adcDet = maxOf(adc1, adc2, adc3) - 125.0
         log("按键 ADC 阈值：%.0f".format(adcDet))
         var keyOn = false
         while (isActive && connected) {
@@ -396,7 +413,7 @@ class MainActivity : AppCompatActivity() {
     /** 是否有待处理的状态切换请求（上一个/下一个）。 */
     private fun switchPending(): Boolean = keyEvent || keyEventPrev
 
-    /** 分段延时：每 50ms 检查一次切换请求，有请求立即返回，让主循环马上切状态。 */
+    /** 分段延时：每 50ms 检查切换请求，有请求立即返回。 */
     private suspend fun delayInterruptible(ms: Long) {
         var remaining = ms
         while (remaining > 0) {
@@ -412,7 +429,7 @@ class MainActivity : AppCompatActivity() {
         var stateChanged = true
         var gifNum = 0
         while (isActive && connected) {
-            // 烧录期间暂停显示轮询，避免与 Flash 写操作争用串口并刷屏错误日志
+            // 烧录期间暂停显示轮询，避免争用串口
             if (flashing) {
                 delay(50)
                 continue
@@ -433,16 +450,16 @@ class MainActivity : AppCompatActivity() {
             }
             try {
                 when (state) {
-                    0 -> { // GIF 动图
+                    0 -> { // GIF 动图（36 帧，页 0,100,...,3500）
                         if (stateChanged) gifNum = 0
-                        s.ack(Msu2Protocol.lcdPhoto(0, 0, 240, 240, gifNum * 450))
-                        gifNum = (gifNum + 1) % 6
+                        s.ack(Msu2Protocol.lcdPhoto(0, 0, Msu2Protocol.SCREEN_W, Msu2Protocol.SCREEN_H, gifNum * Msu2Protocol.GIF_FRAME_PAGES))
+                        gifNum = (gifNum + 1) % Msu2Protocol.GIF_FRAME_COUNT
                     }
                     1 -> showPhoneStatus(s, Msu2Protocol.BLUE, stateChanged)
                     2 -> showPhoneStatus(s, Msu2Protocol.RED, stateChanged)
                     3 -> { // 照片
                         if (stateChanged) {
-                            s.ack(Msu2Protocol.lcdPhoto(0, 0, 240, 240, Msu2Protocol.PAGE_C3))
+                            s.ack(Msu2Protocol.lcdPhoto(0, 0, Msu2Protocol.SCREEN_W, Msu2Protocol.SCREEN_H, Msu2Protocol.PAGE_PH1))
                         }
                         delayInterruptible(300)
                     }
@@ -453,6 +470,9 @@ class MainActivity : AppCompatActivity() {
                 throw e
             } catch (e: Exception) {
                 log("显示异常：${e.message}")
+                if (e is SerialTimeoutException) {
+                    log("提示：MSU2 可能已卡死（不再处理指令）。请拔下设备断电 15 秒后重插，再重新连接。")
+                }
                 delayInterruptible(500)
             }
             stateChanged = false
@@ -460,74 +480,66 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** 手机状态（蓝/红），对应 Python show_PC_state。 */
+    /** 手机状态（蓝/红），对齐 MSU2_MINI_DemoV1.6 show_PC_state（MP1 背景 + N24X33 数码管）。 */
     private suspend fun showPhoneStatus(s: Msu2Serial, fc: Int, stateChanged: Boolean) {
-        val photoAdd = Msu2Protocol.PAGE_DEMO1
-        val numAdd = Msu2Protocol.PAGE_N48X66
+        val numAdd = Msu2Protocol.PAGE_N24X33
         val bc = Msu2Protocol.BLACK
         if (stateChanged) {
-            s.ack(Msu2Protocol.lcdPhotoWb(0, 0, 240, 240, photoAdd, fc, bc))
+            s.ack(Msu2Protocol.lcdPhotoWb(0, 0, Msu2Protocol.SCREEN_W, Msu2Protocol.SCREEN_H, Msu2Protocol.PAGE_MP1, fc, bc))
         }
+        if (switchPending()) return
         var cpu = StatusProvider.cpuUsage()
+        if (cpu < 0) {
+            if (!cpuWarned) {
+                cpuWarned = true
+                log("提示：无法读取 CPU 占用率（/proc/stat 不可用或无变化）")
+            }
+            cpu = 0
+        }
         val mem = StatusProvider.memoryUsage(this)
         val bat = StatusProvider.batteryPercent(this)
+        val frq = StatusProvider.storageUsage(this)
 
-        // CPU（y=24）
-        if (cpu >= 100) { s.ack(Msu2Protocol.lcdPhotoWb(120, 24, 24, 66, 20 + numAdd, fc, bc)); cpu %= 100 }
-        else s.ack(Msu2Protocol.lcdPhotoWb(120, 24, 24, 66, 21 + numAdd, fc, bc))
+        drawN24(s, fc, bc, numAdd, 24, 0, cpu)      // CPU 左上
         if (switchPending()) return
-        s.ack(Msu2Protocol.lcdPhotoWb(144, 24, 48, 66, (cpu / 10) * 2 + numAdd, fc, bc))
+        drawN24(s, fc, bc, numAdd, 104, 0, mem)     // 内存 右上
         if (switchPending()) return
-        s.ack(Msu2Protocol.lcdPhotoWb(192, 24, 48, 66, (cpu % 10) * 2 + numAdd, fc, bc))
+        drawN24(s, fc, bc, numAdd, 104, 47, bat)    // 电量 右下
         if (switchPending()) return
-
-        // 内存（y=87）
-        var memV = mem
-        if (memV >= 100) { s.ack(Msu2Protocol.lcdPhotoWb(120, 87, 24, 66, 20 + numAdd, fc, bc)); memV %= 100 }
-        else s.ack(Msu2Protocol.lcdPhotoWb(120, 87, 24, 66, 21 + numAdd, fc, bc))
-        if (switchPending()) return
-        s.ack(Msu2Protocol.lcdPhotoWb(144, 87, 48, 66, (memV / 10) * 2 + numAdd, fc, bc))
-        if (switchPending()) return
-        s.ack(Msu2Protocol.lcdPhotoWb(192, 87, 48, 66, (memV % 10) * 2 + numAdd, fc, bc))
-        if (switchPending()) return
-
-        // 电量（y=150）
-        var batV = bat
-        if (batV >= 100) { s.ack(Msu2Protocol.lcdPhotoWb(120, 150, 24, 66, 20 + numAdd, fc, bc)); batV %= 100 }
-        else s.ack(Msu2Protocol.lcdPhotoWb(120, 150, 24, 66, 21 + numAdd, fc, bc))
-        if (switchPending()) return
-        s.ack(Msu2Protocol.lcdPhotoWb(144, 150, 48, 66, (batV / 10) * 2 + numAdd, fc, bc))
-        if (switchPending()) return
-        s.ack(Msu2Protocol.lcdPhotoWb(192, 150, 48, 66, (batV % 10) * 2 + numAdd, fc, bc))
+        drawN24(s, fc, bc, numAdd, 24, 47, frq)     // 存储 左下
     }
 
-    /** 时钟，对应 Python show_PC_time。 */
+    /** 一组 N24X33 数码管（百位“1”/空白 + 十位 + 个位），对齐 V1.6。 */
+    private suspend fun drawN24(s: Msu2Serial, fc: Int, bc: Int, numAdd: Int, x: Int, y: Int, value: Int) {
+        var v = value
+        if (v >= 100) { s.ack(Msu2Protocol.lcdPhotoWb(x, y, 8, 33, 10 + numAdd, fc, bc)); v %= 100 }
+        else s.ack(Msu2Protocol.lcdPhotoWb(x, y, 8, 33, 11 + numAdd, fc, bc))
+        if (switchPending()) return
+        s.ack(Msu2Protocol.lcdPhotoWb(x + 8, y, 24, 33, v / 10 + numAdd, fc, bc))
+        if (switchPending()) return
+        s.ack(Msu2Protocol.lcdPhotoWb(x + 32, y, 24, 33, v % 10 + numAdd, fc, bc))
+    }
+
+    /** 时钟（HH:MM），对齐 V1.6 show_PC_time（CLK_BG 背景 + ASC64 字库，y=8）。 */
     private suspend fun showClock(s: Msu2Serial, stateChanged: Boolean) {
         val fc = Msu2Protocol.YELLOW
-        val photoAdd = Msu2Protocol.PAGE_C6
+        val photoAdd = Msu2Protocol.PAGE_CLK_BG
         val numAdd = Msu2Protocol.PAGE_ASC64
         if (stateChanged) {
-            s.ack(Msu2Protocol.lcdPhoto(0, 0, 240, 240, photoAdd))
+            s.ack(Msu2Protocol.lcdPhoto(0, 0, Msu2Protocol.SCREEN_W, Msu2Protocol.SCREEN_H, photoAdd))
             if (switchPending()) return
-            s.ack(Msu2Protocol.lcdAscii32x64Mix(56 + 8, 32, ':', fc, photoAdd, numAdd))
-            if (switchPending()) return
-            s.ack(Msu2Protocol.lcdAscii32x64Mix(136 + 8, 32, ':', fc, photoAdd, numAdd))
+            s.ack(Msu2Protocol.lcdAscii32x64Mix(56 + 8, 8, ':', fc, photoAdd, numAdd))
         }
         val now = LocalTime.now()
         val h = now.hour
         val m = now.minute
-        val sec = now.second
-        s.ack(Msu2Protocol.lcdAscii32x64Mix(0 + 8, 32, digitChar(h / 10), fc, photoAdd, numAdd))
+        s.ack(Msu2Protocol.lcdAscii32x64Mix(0 + 8, 8, digitChar(h / 10), fc, photoAdd, numAdd))
         if (switchPending()) return
-        s.ack(Msu2Protocol.lcdAscii32x64Mix(32 + 8, 32, digitChar(h % 10), fc, photoAdd, numAdd))
+        s.ack(Msu2Protocol.lcdAscii32x64Mix(32 + 8, 8, digitChar(h % 10), fc, photoAdd, numAdd))
         if (switchPending()) return
-        s.ack(Msu2Protocol.lcdAscii32x64Mix(80 + 8, 32, digitChar(m / 10), fc, photoAdd, numAdd))
+        s.ack(Msu2Protocol.lcdAscii32x64Mix(80 + 8, 8, digitChar(m / 10), fc, photoAdd, numAdd))
         if (switchPending()) return
-        s.ack(Msu2Protocol.lcdAscii32x64Mix(112 + 8, 32, digitChar(m % 10), fc, photoAdd, numAdd))
-        if (switchPending()) return
-        s.ack(Msu2Protocol.lcdAscii32x64Mix(160 + 8, 32, digitChar(sec / 10), fc, photoAdd, numAdd))
-        if (switchPending()) return
-        s.ack(Msu2Protocol.lcdAscii32x64Mix(192 + 8, 32, digitChar(sec % 10), fc, photoAdd, numAdd))
+        s.ack(Msu2Protocol.lcdAscii32x64Mix(112 + 8, 8, digitChar(m % 10), fc, photoAdd, numAdd))
         delayInterruptible(200)
     }
 
@@ -545,7 +557,15 @@ class MainActivity : AppCompatActivity() {
         }
         val frame = MirrorService.MirrorBus.latest
         if (frame != null) {
-            s.sendScreen(Msu2Protocol.lcdLoadAddr(frame.x, frame.y, frame.w, frame.h) + frame.data)
+            // 首次拿到帧时打印真实尺寸/编码字节数，便于确认投屏捕获与编码
+            if (!mirrorInfoLogged) {
+                mirrorInfoLogged = true
+                log("镜像帧：${frame.w}x${frame.h} 编码${frame.data.size}B")
+            }
+            // 投屏帧发送过程中每块之间检查切换请求，用户随时可切走（在指令边界安全中止）
+            s.sendScreen(Msu2Protocol.lcdLoadAddr(frame.x, frame.y, frame.w, frame.h) + frame.data) {
+                switchPending()
+            }
         } else {
             delay(80)
         }
@@ -581,8 +601,66 @@ class MainActivity : AppCompatActivity() {
     // 烧录素材
     // ---------------------------------------------------------------
 
+    private enum class FlashKind { GIF, PHOTO, BIN }
+
+    @Volatile private var flashKind: FlashKind = FlashKind.BIN
+
+    private fun dp(v: Float): Int = (v * resources.displayMetrics.density).toInt()
+
+    /** 构建 Material 风格纵向单选组（项间距 8dp；外框内边距由容器统一设置）。 */
+    private fun materialRadioGroup(options: List<String>): RadioGroup {
+        return RadioGroup(this).apply {
+            orientation = RadioGroup.VERTICAL
+            options.forEachIndexed { i, text ->
+                val rb = com.google.android.material.radiobutton.MaterialRadioButton(this@MainActivity).apply {
+                    this.text = text
+                    textSize = 16f
+                }
+                val lp = RadioGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                if (i < options.size - 1) lp.bottomMargin = dp(8f)
+                rb.layoutParams = lp
+                addView(rb)
+            }
+            if (childCount > 0) check(getChildAt(0).id)
+        }
+    }
+
+    /** 单选组中被选中项的下标（按添加顺序）。 */
+    private fun RadioGroup.checkedIndex(): Int =
+        (0 until childCount).firstOrNull { getChildAt(it).id == checkedRadioButtonId } ?: 0
+
     private fun showFlashDialog() {
-        flashFileLauncher.launch(arrayOf("application/octet-stream", "application/x-binary", "application/*", "*/*"))
+        // 从上到下：GIF / 图片 / 固件
+        val group = materialRadioGroup(
+            listOf(
+                getString(R.string.flash_kind_gif),
+                getString(R.string.flash_kind_photo),
+                getString(R.string.flash_kind_bin)
+            )
+        )
+        // Material 对话框内容内边距：左右 24dp、上下 8dp
+        group.setPadding(dp(24f), dp(8f), dp(24f), dp(8f))
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.flash_title)
+            .setView(group)
+            .setPositiveButton(R.string.flash_confirm) { _, _ ->
+                flashKind = when (group.checkedIndex()) {
+                    0 -> FlashKind.GIF
+                    1 -> FlashKind.PHOTO
+                    else -> FlashKind.BIN
+                }
+                val mime = when (flashKind) {
+                    FlashKind.GIF -> arrayOf("image/gif")
+                    FlashKind.PHOTO -> arrayOf("image/*")
+                    FlashKind.BIN -> arrayOf("application/octet-stream", "application/x-binary", "*/*")
+                }
+                flashFileLauncher.launch(mime)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun startFlash(uri: Uri) {
@@ -591,81 +669,408 @@ class MainActivity : AppCompatActivity() {
             log("未连接设备，无法烧录")
             return
         }
-        val builder = MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.flash_params_title)
+        when (flashKind) {
+            FlashKind.GIF -> flashGif(s, uri)
+            FlashKind.PHOTO -> showImageTargetDialog(s, uri)
+            FlashKind.BIN -> showBinFlashDialog(s, uri)
+        }
+    }
 
-        // 起始页输入
+    /** 烧录 GIF：解码动画 GIF 前 36 帧，缩放裁剪到 160x80，按帧烧录到页 0/100/.../3500。 */
+    private fun flashGif(s: Msu2Serial, uri: Uri) {
+        scope.launch {
+            flashing = true
+            try {
+                progressDone = false
+                progressStart = -1
+                log("解析 GIF（≤36 帧，160x80）…")
+                val frames = decodeGifFrames(uri)
+                if (frames.isEmpty()) throw IllegalStateException("GIF 无有效帧")
+                log("GIF 共 ${frames.size} 帧，转换中…")
+                val data = ByteArray(frames.size * 25600)
+                frames.forEachIndexed { i, bmp ->
+                    val rgb = ByteArray(25600)
+                    bitmapToRgb565(bmp, rgb)
+                    System.arraycopy(rgb, 0, data, i * 25600, rgb.size)
+                    bmp.recycle()
+                }
+                log("开始烧录 ${frames.size} 帧到 Flash 页 0（共 ${data.size / 256} 页，耗时较长）…")
+                FlashWriter().flash(
+                    s, data, 0, false,
+                    onLog = { log(it) },
+                    onProgress = { done, total -> runOnUiThread { renderProgress(done, total) } }
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log("GIF 烧录失败：${e.message}")
+                runCatching { s.drain() }
+                if (e is SerialTimeoutException) {
+                    log("提示：MSU2 未在预期时间内响应。若设备已卡死，请重新插拔 MSU2 后重试")
+                }
+            } finally {
+                flashing = false
+            }
+        }
+    }
+
+    /** 解码动画 GIF：按帧解析帧时间表，按帧率均匀取 36 帧，每帧缩放裁剪到 160x80。 */
+    private fun decodeGifFrames(uri: Uri): List<Bitmap> {
+        val movie = contentResolver.openInputStream(uri)?.use { Movie.decodeStream(it) }
+            ?: throw IllegalStateException("无法解码 GIF（请确认是动画 GIF）")
+        val w = movie.width()
+        val h = movie.height()
+        if (w <= 0 || h <= 0) throw IllegalStateException("GIF 尺寸无效")
+
+        // 解析出的每帧起始时间表（毫秒）
+        val frameTimes = parseGifFrameTimes(uri)
+        val selected: LongArray = if (frameTimes != null && frameTimes.isNotEmpty()) {
+            // 按帧率均匀取 36 帧：帧数>=36 均匀抽帧；<36 自动重复补足
+            LongArray(36) { i -> frameTimes[(i * frameTimes.size) / 36] }
+        } else {
+            // 解析失败回退：按总时长均匀采样
+            val duration = movie.duration()
+            LongArray(36) { i -> if (duration > 0) duration.toLong() * i / 36 else 0L }
+        }
+
+        val frames = ArrayList<Bitmap>(36)
+        for (t in selected) {
+            movie.setTime(t.toInt())
+            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bmp)
+            movie.draw(canvas, 0f, 0f)
+            frames.add(resizeTo160x80(bmp))
+            bmp.recycle()
+        }
+        return frames
+    }
+
+    /**
+     * 解析 GIF 每帧的起始时间（ms）。按 GIF89a 规范读取：
+     * 图像描述符(0x2C)对应一帧，前面的图形控制扩展(0x21 0xF9)指定该帧延时（单位 10ms）。
+     */
+    private fun parseGifFrameTimes(uri: Uri): LongArray? {
+        return try {
+            val data = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+            if (data.size < 13) return null
+            if (data[0] != 'G'.code.toByte() || data[1] != 'I'.code.toByte() || data[2] != 'F'.code.toByte()) return null
+            var p = 6
+            val flags = data[p + 4].toInt() and 0xFF
+            p += 7
+            if ((flags and 0x80) != 0) p += 6 shl (flags and 0x07) // 全局调色板
+            val times = ArrayList<Long>()
+            var total = 0L
+            var prevDelay = 0L
+            while (p < data.size) {
+                val block = data[p].toInt() and 0xFF
+                p++
+                when (block) {
+                    0x2C -> { // 图像帧
+                        if (p + 8 >= data.size) return null
+                        times.add(total)
+                        total += prevDelay
+                        prevDelay = 0
+                        val packed = data[p + 8].toInt() and 0xFF
+                        p += 9
+                        if ((packed and 0x80) != 0) p += 6 shl (packed and 0x07) // 局部调色板
+                        if (p >= data.size) return null
+                        p++ // LZW 最小码长
+                        p = skipSubBlocks(data, p)
+                    }
+                    0x21 -> { // 扩展
+                        if (p >= data.size) break
+                        val label = data[p].toInt() and 0xFF
+                        p++
+                        if (label == 0xF9) { // 图形控制扩展：延时=该帧显示时长
+                            if (p + 5 >= data.size) return null
+                            prevDelay = (((data[p + 3].toInt() and 0xFF) shl 8) or (data[p + 2].toInt() and 0xFF)) * 10L
+                            p += 6
+                        } else {
+                            p = skipSubBlocks(data, p)
+                        }
+                    }
+                    0x3B -> break // 结束
+                    else -> return null
+                }
+            }
+            if (times.isEmpty()) null else times.toLongArray()
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** 跳过子块序列（每块 1 字节长度 + 数据，0 结束）。 */
+    private fun skipSubBlocks(data: ByteArray, start: Int): Int {
+        var p = start
+        while (p < data.size) {
+            val len = data[p].toInt() and 0xFF
+            p++
+            if (len == 0) return p
+            p += len
+        }
+        return p
+    }
+
+    /** 图片类：弹框选择目标页（时钟背景/照片/自定义页+输入框），点确认后缩放 160x80 烧录。 */
+    private fun showImageTargetDialog(s: Msu2Serial, uri: Uri) {
+        val rbClock = com.google.android.material.radiobutton.MaterialRadioButton(this).apply {
+            text = getString(R.string.flash_target_clock)
+            textSize = 16f
+        }
+        val rbPhoto = com.google.android.material.radiobutton.MaterialRadioButton(this).apply {
+            text = getString(R.string.flash_target_photo)
+            textSize = 16f
+        }
+        val rbCustom = com.google.android.material.radiobutton.MaterialRadioButton(this).apply {
+            text = getString(R.string.flash_target_custom)
+            textSize = 16f
+        }
         val pageInput = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER
-            hint = "起始页（0 - 499）"
+            hint = "页号"
+            width = dp(96f)
+            isEnabled = false
         }
-        // 类型选择：图片（先擦除）/ 字库（不擦除）
-        val rbPhoto = RadioButton(this).apply { text = getString(R.string.flash_type_photo) }
-        val rbZk = RadioButton(this).apply { text = getString(R.string.flash_type_zk) }
-        val rbGroup = RadioGroup(this).apply {
-            addView(rbPhoto)
-            addView(rbZk)
-            check(rbPhoto.id)
+        // 手动管理互斥（避免 RadioGroup 对嵌套单选按钮注册不可靠）
+        fun select(rb: android.widget.RadioButton) {
+            rbClock.isChecked = rb === rbClock
+            rbPhoto.isChecked = rb === rbPhoto
+            rbCustom.isChecked = rb === rbCustom
+            pageInput.isEnabled = rb === rbCustom
+        }
+        rbClock.setOnCheckedChangeListener { _, c -> if (c) select(rbClock) }
+        rbPhoto.setOnCheckedChangeListener { _, c -> if (c) select(rbPhoto) }
+        rbCustom.setOnCheckedChangeListener { _, c -> if (c) select(rbCustom) }
+        rbClock.isChecked = true
+
+        // 自定义页：单选按钮 + 输入框在它右边
+        val customRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(rbCustom)
+            addView(pageInput, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(8f) })
         }
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(pageInput)
-            addView(rbGroup)
+            setPadding(dp(24f), dp(8f), dp(24f), dp(8f))
+            addView(rbClock, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(rbPhoto, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8f) })
+            addView(customRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8f) })
         }
-        builder.setView(container)
-
-        builder.setPositiveButton(android.R.string.ok) { _, _ ->
-            val page = pageInput.text.toString().toIntOrNull() ?: 0
-            val zk = rbGroup.checkedRadioButtonId == rbZk.id
-            scope.launch {
-                flashing = true
-                try {
-                    progressDone = false
-                    progressStart = -1
-                    log("开始烧录 $uri …")
-                    val data = contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                        ?: throw IllegalStateException("无法读取文件")
-                    FlashWriter().flash(
-                        s, data, page, zk,
-                        onLog = { log(it) },
-                        onProgress = { done, total ->
-                            runOnUiThread { renderProgress(done, total) }
-                        }
-                    )
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    log("烧录失败：${e.message}")
-                    // 清空设备残留数据，避免影响后续指令
-                    runCatching { s.drain() }
-                    if (e is SerialTimeoutException) {
-                        log("提示：MSU2 未在预期时间内响应。若设备已卡死，请重新插拔 MSU2 后重试")
-                    }
-                } finally {
-                    flashing = false
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.flash_target_title)
+            .setView(container)
+            .setPositiveButton(R.string.flash_confirm) { _, _ ->
+                val page = when {
+                    rbPhoto.isChecked -> 3926
+                    rbCustom.isChecked -> pageInput.text.toString().toIntOrNull() ?: 0
+                    else -> 3826
                 }
+                flashImageTo(s, uri, page)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun flashImageTo(s: Msu2Serial, uri: Uri, page: Int) {
+        scope.launch {
+            flashing = true
+            try {
+                progressDone = false
+                progressStart = -1
+                log("解析图片并缩放至 160x80 …")
+                val bmp = decodeImage(uri)
+                val resized = resizeTo160x80(bmp)
+                bmp.recycle()
+                val rgb = ByteArray(25600)
+                bitmapToRgb565(resized, rgb)
+                resized.recycle()
+                log("烧录图片到 Flash 页 $page …")
+                FlashWriter().flash(
+                    s, rgb, page, false,
+                    onLog = { log(it) },
+                    onProgress = { done, total -> runOnUiThread { renderProgress(done, total) } }
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log("图片烧录失败：${e.message}")
+                runCatching { s.drain() }
+                if (e is SerialTimeoutException) {
+                    log("提示：MSU2 未在预期时间内响应。若设备已卡死，请重新插拔 MSU2 后重试")
+                }
+            } finally {
+                flashing = false
             }
         }
-        builder.setNegativeButton(android.R.string.cancel, null)
-        builder.show()
+    }
+
+    /** 固件/Bin 类：保持原有“起始页 + 类型（图片/字库）”流程。 */
+    private fun showBinFlashDialog(s: Msu2Serial, uri: Uri) {
+        val pageInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            hint = "起始页（0 - 4095）"
+        }
+        val rbGroup = materialRadioGroup(
+            listOf(
+                getString(R.string.flash_type_photo),
+                getString(R.string.flash_type_zk)
+            )
+        )
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24f), dp(8f), dp(24f), dp(8f))
+            addView(pageInput)
+            addView(rbGroup, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12f) })
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.flash_params_title)
+            .setView(container)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val page = pageInput.text.toString().toIntOrNull() ?: 0
+                val zk = rbGroup.checkedIndex() == 1
+                scope.launch {
+                    flashing = true
+                    try {
+                        progressDone = false
+                        progressStart = -1
+                        log("开始烧录 $uri …")
+                        val data = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                            ?: throw IllegalStateException("无法读取文件")
+                        FlashWriter().flash(
+                            s, data, page, zk,
+                            onLog = { log(it) },
+                            onProgress = { done, total ->
+                                runOnUiThread { renderProgress(done, total) }
+                            }
+                        )
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        log("烧录失败：${e.message}")
+                        runCatching { s.drain() }
+                        if (e is SerialTimeoutException) {
+                            log("提示：MSU2 未在预期时间内响应。若设备已卡死，请重新插拔 MSU2 后重试")
+                        }
+                    } finally {
+                        flashing = false
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /** 解码图片（先采样边界防 OOM，再解码缩略）。 */
+    private fun decodeImage(uri: Uri): Bitmap {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        var sample = 1
+        while (bounds.outWidth / sample > 320 || bounds.outHeight / sample > 320) sample *= 2
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        return contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+            ?: throw IllegalStateException("无法解析图片")
+    }
+
+    /** 按 V1.6 方式缩放并中心裁剪到 160x80。 */
+    private fun resizeTo160x80(src: Bitmap): Bitmap {
+        val sw = src.width
+        val sh = src.height
+        return if (sw >= sh * 2) {
+            val nw = (80 * sw / sh).coerceAtLeast(160)
+            val tmp = Bitmap.createScaledBitmap(src, nw, 80, true)
+            Bitmap.createBitmap(tmp, (nw - 160) / 2, 0, 160, 80).also { tmp.recycle() }
+        } else {
+            val nh = (160 * sh / sw).coerceAtLeast(80)
+            val tmp = Bitmap.createScaledBitmap(src, 160, nh, true)
+            Bitmap.createBitmap(tmp, 0, (nh - 80) / 2, 160, 80).also { tmp.recycle() }
+        }
+    }
+
+    /** 将 160x80 位图转成 RGB565 字节（对齐设备编码）。 */
+    private fun bitmapToRgb565(bmp: Bitmap, out: ByteArray) {
+        val w = bmp.width
+        val h = bmp.height
+        val pixels = IntArray(w * h)
+        bmp.getPixels(pixels, 0, w, 0, 0, w, h)
+        Msu2Protocol.rgb565Bytes(pixels, w, h, w, out)
     }
 
     // ---------------------------------------------------------------
     // 菜单 / 关于 / 更新
     // ---------------------------------------------------------------
 
-    private fun showOverflowMenu(anchor: android.view.View) {
-        val menu = PopupMenu(this, anchor)
-        menu.menu.add(0, 1, 0, getString(R.string.menu_about))
-        menu.menu.add(0, 2, 0, getString(R.string.menu_update))
-        menu.setOnMenuItemClickListener { item ->
-            when (item.itemId) {
-                1 -> showAboutDialog()
-                2 -> checkUpdate()
+    private fun showOverflowMenu(anchor: View) {
+        val d = resources.displayMetrics.density
+
+        val menuView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = MaterialShapeDrawable().apply {
+                setTint(MaterialColors.getColor(this@MainActivity, com.google.android.material.R.attr.colorSurface, Color.WHITE))
+                shapeAppearanceModel = shapeAppearanceModel.toBuilder()
+                    .setAllCorners(CornerFamily.ROUNDED, 4 * d)
+                    .build()
             }
-            true
+            outlineProvider = ViewOutlineProvider.BACKGROUND
         }
-        menu.show()
+
+        val popup = PopupWindow(
+            menuView,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            true
+        ).apply {
+            isOutsideTouchable = true
+            isFocusable = true
+            elevation = 4 * d
+        }
+
+        menuView.addView(menuRow(getString(R.string.menu_about)) {
+            popup.dismiss()
+            showAboutDialog()
+        })
+        menuView.addView(menuRow(getString(R.string.menu_update)) {
+            popup.dismiss()
+            checkUpdate()
+        })
+
+        // 面板宽 = 内容宽 × 1.5
+        menuView.measure(
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        popup.setWidth((menuView.measuredWidth * 1.5).toInt())
+
+        // 面板右缘对齐按钮右缘
+        popup.showAsDropDown(anchor, 0, 0, Gravity.END)
+    }
+
+    /** 菜单行：文字居中，带按压反馈。 */
+    private fun menuRow(label: String, onClick: () -> Unit): TextView {
+        val d = resources.displayMetrics.density
+        val ripple = TypedValue()
+        val rippleRes =
+            if (theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)) ripple.resourceId else 0
+        return TextView(this).apply {
+            text = label
+            textSize = 16f
+            setTextColor(MaterialColors.getColor(this@MainActivity, com.google.android.material.R.attr.colorOnSurface, Color.WHITE))
+            height = (48 * d).toInt()
+            gravity = Gravity.CENTER
+            setPadding((16 * d).toInt(), 0, (16 * d).toInt(), 0)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            if (rippleRes != 0) setBackgroundResource(rippleRes)
+            setOnClickListener { onClick() }
+        }
     }
 
     private fun showAboutDialog() {
@@ -681,8 +1086,7 @@ class MainActivity : AppCompatActivity() {
         val d = resources.displayMetrics.density
         return TextView(this).apply {
             text = content
-            // setTextIsSelectable 会设置 ArrowKeyMovementMethod（可滚动且支持长按选择复制）；
-            // 之后不能再覆盖 movementMethod，否则会失去选择能力。
+            // setTextIsSelectable 后可滚动+长按复制，勿再覆盖 movementMethod
             setTextIsSelectable(true)
             setMaxHeight((maxHeightDp * d).toInt())
             setPadding((24 * d).toInt(), (12 * d).toInt(), (24 * d).toInt(), 0)
@@ -731,7 +1135,7 @@ class MainActivity : AppCompatActivity() {
         fetchFromHtmlPage() ?: fetchFromApi()
     }.getOrNull()
 
-    /** 优先抓取 GitHub releases 页面（HTML 不受 API 限流影响，国内网络更稳定）。 */
+    /** 优先抓 releases 页面（HTML 不受 API 限流、国内更稳）。 */
     private fun fetchFromHtmlPage(): ReleaseInfo? = runCatching {
         val conn = URL(RELEASES_URL).openConnection() as HttpURLConnection
         conn.requestMethod = "GET"
@@ -774,7 +1178,7 @@ class MainActivity : AppCompatActivity() {
         }
     }.getOrNull()
 
-    /** 从 releases 页面 HTML 中提取首个非空 markdown-body 文本作为更新日志。 */
+    /** 提取 releases 页面首个 markdown-body 作为更新日志。 */
     private fun extractReleaseNotes(html: String): String? {
         var idx = html.indexOf("markdown-body")
         while (idx >= 0) {
@@ -838,12 +1242,25 @@ class MainActivity : AppCompatActivity() {
             removeProgressLine()
             binding.tvLog.append(msg)
             binding.tvLog.append("\n")
+            scrollLogIfAtBottom()
+        }
+    }
+
+    /** 仅当日志原本就在底部时才自动滚到底，避免把正在向上翻看的用户拽回去。 */
+    private fun scrollLogIfAtBottom() {
+        if (!binding.logScroll.canScrollVertically(1)) {
             binding.logScroll.post { binding.logScroll.fullScroll(ScrollView.FOCUS_DOWN) }
         }
     }
 
-    /** 命令行风格进度条：单行实时覆盖刷新。 */
+    /** 命令行风格进度条：单行实时覆盖刷新，限流避免高频更新导致闪烁。 */
     private fun renderProgress(done: Int, total: Int) {
+        val doneFinal = done >= total
+        val now = SystemClock.elapsedRealtime()
+        // 未完成时最多约 5 次/秒刷新；完成时刻必刷
+        if (!doneFinal && now - lastProgressRender < 200) return
+        lastProgressRender = now
+
         val pct = if (total <= 0) 100 else done * 100 / total
         val width = 20
         val filled = pct * width / 100
@@ -853,11 +1270,11 @@ class MainActivity : AppCompatActivity() {
         progressStart = binding.tvLog.text.length
         binding.tvLog.append(line)
         binding.tvLog.append("\n")
-        progressDone = done >= total
-        binding.logScroll.post { binding.logScroll.fullScroll(ScrollView.FOCUS_DOWN) }
+        progressDone = doneFinal
+        scrollLogIfAtBottom()
     }
 
-    /** 删除当前进度行，使普通日志/下一进度行能覆盖它；烧录完成后保留 100% 进度行。 */
+    /** 删除当前进度行，烧录完成后保留 100% 行。 */
     private fun removeProgressLine() {
         if (progressStart < 0 || progressDone) return
         val text = binding.tvLog.text

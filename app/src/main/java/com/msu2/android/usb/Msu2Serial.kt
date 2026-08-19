@@ -6,6 +6,8 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.util.Log
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.IOException
@@ -24,6 +26,11 @@ class Msu2Serial(
         private const val BUF_SIZE = 4096
         private const val READ_TIMEOUT = 200
         private const val WRITE_TIMEOUT = 3000
+        /** 屏幕数据分块大小：所有指令均为 6 字节，取 6 的倍数（60=10 条指令），
+         *  且不超过 64 字节单包上限，避免设备接收 FIFO 溢出导致整块超时。 */
+        private const val SCREEN_CHUNK_SIZE = 60
+        /** 每块屏幕数据的写入截止时间：设备消化只有 ~2KB/s，块越小越不容易整块超时。 */
+        private const val SCREEN_WRITE_TIMEOUT = 5000
     }
 
     private val mutex = Mutex()
@@ -41,8 +48,9 @@ class Msu2Serial(
             ?: throw IOException("无法打开 USB 设备")
         p.open(connection)
         p.setParameters(BAUD, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
+        // 与电脑版 pyserial（rtscts 关闭、RTS 不置位）保持一致，避免设备对 RTS 状态敏感
         try { p.setDTR(true) } catch (_: Exception) {}
-        try { p.setRTS(true) } catch (_: Exception) {}
+        try { p.setRTS(false) } catch (_: Exception) {}
         port = p
         readBuffer.reset()
         Log.i(TAG, "serial opened, ${p.portNumber}")
@@ -180,10 +188,32 @@ class Msu2Serial(
         mutex.withLock { writeRaw(cmd) }
     }
 
-    /** 发送屏幕显存数据（LCD_ADD + 编码数据），随后清空设备返回的响应。 */
-    suspend fun sendScreen(cmd: ByteArray) {
+    /**
+     * 发送屏幕显存数据（LCD_ADD + 编码数据）。
+     *
+     * 设备对屏幕指令流的消化速度只有 ~2KB/s，一帧镜像编码后可达数万字节，
+     * 若一次性写入，usb-serial 的总截止时间（3s）会在中途触发超时（rc=-1），
+     * 造成画面只写一半、指令流被截断导致设备错位，随后“已断开连接”。
+     * 这里按 [SCREEN_CHUNK_SIZE] 分块写入，每块都有独立的 [SCREEN_WRITE_TIMEOUT]
+     * 超时预算，靠设备自身的 USB 背压（RX 缓冲满时 NAK）来限速，
+     * 保证整帧完整送达（帧率受设备速度限制，但不再报错/掉线）。
+     *
+     * [abortCheck] 在每块之间求值：返回 true 时在指令边界（块大小为 6 的倍数）
+     * 安全中止，避免投屏一帧几十秒期间无法响应状态切换。
+     */
+    suspend fun sendScreen(cmd: ByteArray, abortCheck: (() -> Boolean)? = null) {
         mutex.withLock {
-            writeRaw(cmd)
+            var off = 0
+            while (off < cmd.size) {
+                val n = minOf(SCREEN_CHUNK_SIZE, cmd.size - off)
+                writeRaw(cmd.copyOfRange(off, off + n), SCREEN_WRITE_TIMEOUT)
+                off += n
+                if (off < cmd.size) {
+                    // 大帧中途可能被用户切走状态/断开，及时响应取消
+                    currentCoroutineContext().ensureActive()
+                    if (abortCheck?.invoke() == true) return@withLock
+                }
+            }
             drainAll()
         }
     }
@@ -204,7 +234,7 @@ class Msu2Serial(
 
     /** 等待并返回 6 字节响应（取缓冲中最后 6 字节，避免误读残留广播）。 */
     private suspend fun readResponse(): ByteArray {
-        val deadline = System.currentTimeMillis() + 1000
+        val deadline = System.currentTimeMillis() + 3000
         while (System.currentTimeMillis() < deadline) {
             readChunk(READ_TIMEOUT)
             val buf = readBuffer.toByteArray()

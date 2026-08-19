@@ -96,7 +96,9 @@
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:background="@drawable/bg_state_switch_half_left">
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="@drawable/bg_state_switch_half_left">
 
                 <ImageView
                     android:layout_width="wrap_content"
@@ -120,7 +122,9 @@
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:background="@drawable/bg_state_switch_half_right">
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="@drawable/bg_state_switch_half_right">
 
                 <ImageView
                     android:layout_width="wrap_content"

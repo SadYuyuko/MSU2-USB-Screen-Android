@@ -41,5 +41,13 @@
     <string name="flash_params_title">烧录参数</string>
     <string name="flash_type_photo">图片类（先擦除后写入）</string>
     <string name="flash_type_zk">字库类（不擦除）</string>
+    <string name="flash_confirm">确认</string>
+    <string name="flash_kind_gif">GIF（36帧 160x80 自动处理）</string>
+    <string name="flash_kind_photo">图片（jpg/png 160x80 烧录至指定页）</string>
+    <string name="flash_kind_bin">固件（.bin 原始数据）</string>
+    <string name="flash_target_title">选择烧录目标</string>
+    <string name="flash_target_clock">时钟背景（页 3826）</string>
+    <string name="flash_target_photo">照片（页 3926）</string>
+    <string name="flash_target_custom">自定义页</string>
     <string name="mirror_foreground_notify">MSU2 副屏正在镜像手机屏幕</string>
 </resources>
