@@ -11,6 +11,8 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Movie
+import android.graphics.Paint
+import android.graphics.Path
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.media.projection.MediaProjectionManager
@@ -37,7 +39,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import com.google.android.material.color.DynamicColors
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -47,6 +48,7 @@ import com.hoho.android.usbserial.driver.SerialTimeoutException
 import com.hoho.android.usbserial.driver.UsbSerialProber
 import com.msu2.android.databinding.ActivityMainBinding
 import com.msu2.android.services.MirrorService
+import com.msu2.android.services.UsbService
 import com.msu2.android.ui.FlashWriter
 import com.msu2.android.ui.StatusProvider
 import com.msu2.android.usb.Msu2Protocol
@@ -72,6 +74,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.time.LocalTime
 import kotlin.coroutines.resume
+import kotlin.math.abs
 
 class MainActivity : AppCompatActivity() {
 
@@ -102,6 +105,7 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var keyEventPrev = false
     @Volatile private var projectionGranted = false
     @Volatile private var flashing = false
+    @Volatile private var lcdState = 0
     @Volatile private var projectionDeferred: CompletableDeferred<Boolean>? = null
     @Volatile private var permissionContinuation: kotlin.coroutines.Continuation<Boolean>? = null
     private var mirrorInfoLogged = false
@@ -109,6 +113,12 @@ class MainActivity : AppCompatActivity() {
     private var lastProgressRender = 0L
     private var progressStart = -1
     private var progressDone = false
+
+    // 网速页状态（对应 MG 版 show_netspeed）
+    private var netSpeedLastTime = 0L
+    private var netSpeedLastRx = 0L
+    private var netSpeedLastTx = 0L
+    private val netSpeedPlot = ArrayDeque<Pair<Double, Double>>()
 
     private val projectionLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -167,11 +177,13 @@ class MainActivity : AppCompatActivity() {
 
         stateNames = arrayOf(
             getString(R.string.state_0), getString(R.string.state_1), getString(R.string.state_2),
-            getString(R.string.state_3), getString(R.string.state_4), getString(R.string.state_5)
+            getString(R.string.state_3), getString(R.string.state_4), getString(R.string.state_5),
+            getString(R.string.state_6)
         )
 
         binding.btnConnect.setOnClickListener { connect() }
         binding.btnDisconnect.setOnClickListener { disconnect() }
+        binding.btnRotate.setOnClickListener { rotateDisplay() }
         binding.btnStatePrev.setOnClickListener { keyEventPrev = true }
         binding.btnStateNext.setOnClickListener { keyEvent = true }
         binding.btnFlash.setOnClickListener { showFlashDialog() }
@@ -285,6 +297,12 @@ class MainActivity : AppCompatActivity() {
             log("设备连接完成，版本 $version")
             updateStatus("${getString(R.string.status_connected)}（MSN v$version）")
 
+            // 同步显示方向 + 启动保活服务（后台不被冻结）
+            try {
+                s.ack(Msu2Protocol.lcdState(lcdState))
+            } catch (_: Exception) {}
+            UsbService.start(this)
+
             // 读取数据字典（对应 Python Read_M_SFR_Data）
             try {
                 val entries = SfrRegistry.read(s)
@@ -312,6 +330,7 @@ class MainActivity : AppCompatActivity() {
             keyEventPrev = false
             flashing = false
             stopMirrorSession()
+            UsbService.stop(this)
             serial?.close()
             serial = null
             currentDeviceId = -1
@@ -349,6 +368,26 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** 旋转键：硬件切换显示方向 180°。 */
+    private fun rotateDisplay() {
+        val s = serial
+        if (s == null) {
+            log(getString(R.string.no_device))
+            return
+        }
+        lcdState = if (lcdState == 0) 1 else 0
+        scope.launch {
+            try {
+                s.ack(Msu2Protocol.lcdState(lcdState))
+                log(getString(R.string.rotate_done))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log("旋转失败：${e.message}")
+            }
+        }
+    }
+
     private suspend fun disconnectInternal() {
         connected = false
         keyEvent = false
@@ -356,6 +395,7 @@ class MainActivity : AppCompatActivity() {
         flashing = false
         resetStateLabel()
         stopMirrorSession()
+        UsbService.stop(this)
         connectJob?.cancelAndJoin()
         connectJob = null
         serial?.close()
@@ -433,7 +473,7 @@ class MainActivity : AppCompatActivity() {
             else if (keyEvent) { keyEvent = false; delta = 1 }
             if (delta != 0) {
                 val prev = state
-                state = ((state + delta) % 6 + 6) % 6
+                state = ((state + delta) % 7 + 7) % 7
                 stateChanged = true
                 if (prev == 5 || state == 5) {
                     if (prev == 5) stopMirrorSession()
@@ -459,6 +499,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     4 -> showClock(s, stateChanged)
                     5 -> showMirror(s)
+                    6 -> showNetSpeed(s, stateChanged)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -535,6 +576,97 @@ class MainActivity : AppCompatActivity() {
         if (switchPending()) return
         s.ack(Msu2Protocol.lcdAscii32x64Mix(112 + 8, 8, digitChar(m % 10), fc, photoAdd, numAdd))
         delayInterruptible(200)
+    }
+
+    /** 网速：TrafficStats 差值算速率，绘制 160x80 文字+线条图直写显存（对齐 MG 版）。 */
+    private suspend fun showNetSpeed(s: Msu2Serial, stateChanged: Boolean) {
+        if (stateChanged) {
+            val (rx, tx) = StatusProvider.netCounters()
+            netSpeedLastTime = SystemClock.elapsedRealtime()
+            netSpeedLastRx = rx
+            netSpeedLastTx = tx
+            netSpeedPlot.clear()
+            repeat(120) { netSpeedPlot.addLast(0.0 to 0.0) }
+        }
+        val (curRx, curTx) = StatusProvider.netCounters()
+        val now = SystemClock.elapsedRealtime()
+        val dt = (now - netSpeedLastTime) / 1000.0
+        val sent = if (curTx >= 0 && curTx >= netSpeedLastTx && dt > 0) (curTx - netSpeedLastTx) / dt else 0.0
+        val recv = if (curRx >= 0 && curRx >= netSpeedLastRx && dt > 0) (curRx - netSpeedLastRx) / dt else 0.0
+        netSpeedLastTime = now
+        netSpeedLastRx = curRx
+        netSpeedLastTx = curTx
+        if (netSpeedPlot.isNotEmpty()) netSpeedPlot.removeFirst()
+        netSpeedPlot.addLast(sent to recv)
+
+        val w = Msu2Protocol.SCREEN_W
+        val h = Msu2Protocol.SCREEN_H
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        canvas.drawColor(Color.BLACK)
+        val textPaint = Paint().apply {
+            isAntiAlias = true
+            color = Color.rgb(255, 128, 0)
+            textSize = 20f
+        }
+        canvas.drawText("上传  ${formatSpeed(sent).padStart(8)}", 0f, 18f, textPaint)
+        canvas.drawText("下载  ${formatSpeed(recv).padStart(8)}", 0f, 58f, textPaint)
+        drawNetLines(canvas, netSpeedPlot.map { it.first }, 39, Color.rgb(235, 139, 139))
+        drawNetLines(canvas, netSpeedPlot.map { it.second }, 79, Color.rgb(146, 211, 217))
+        val rgb = ByteArray(w * h * 2)
+        bitmapToRgb565(bmp, rgb)
+        bmp.recycle()
+        val data = Msu2Protocol.encodeScreenData(rgb, w, h)
+        s.sendScreen(Msu2Protocol.lcdLoadAddr(0, 0, w, h) + data) { switchPending() }
+        delayInterruptible(1000)
+    }
+
+    /** 网速线条图：每点 2px、高 20、最小量程 100KB/s、取最近 80 点，线下填充颜色。 */
+    private fun drawNetLines(canvas: Canvas, values: List<Double>, baselineY: Int, color: Int) {
+        val maxValue = maxOf(1024.0 * 100.0, values.maxOrNull() ?: 0.0)
+        val recent = values.takeLast(80)
+        if (recent.isEmpty()) return
+        val linePaint = Paint().apply {
+            this.color = color
+            style = Paint.Style.STROKE
+            strokeWidth = 2f
+            isAntiAlias = true
+        }
+        val fillPaint = Paint().apply {
+            this.color = color
+            style = Paint.Style.FILL
+            alpha = 60
+        }
+        val line = Path()
+        val fill = Path()
+        var lastX = 0f
+        recent.forEachIndexed { i, v ->
+            val x = (i * 2).toFloat()
+            val y = baselineY.toFloat() - (if (maxValue > 0) (v / maxValue * 20.0) else 0.0).toFloat()
+            if (i == 0) {
+                line.moveTo(x, y)
+                fill.moveTo(x, baselineY.toFloat())
+            }
+            line.lineTo(x, y)
+            fill.lineTo(x, y)
+            lastX = x
+        }
+        fill.lineTo(lastX, baselineY.toFloat())
+        fill.close()
+        canvas.drawPath(fill, fillPaint)
+        canvas.drawPath(line, linePaint)
+    }
+
+    /** 网速格式化（对齐 MG 版 sizeof_fmt）。 */
+    private fun formatSpeed(num: Double): String {
+        val base = 1024.0
+        if (abs(num) < base) return String.format("%3.1fKiB", num / base)
+        var n = num
+        for (unit in arrayOf("", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi")) {
+            if (abs(n) < base) return String.format("%3.1f%sB", n, unit)
+            n /= base
+        }
+        return String.format("%.1fYiB", n)
     }
 
     /** 屏幕镜像。 */

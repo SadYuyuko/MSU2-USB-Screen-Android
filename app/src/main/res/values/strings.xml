@@ -10,7 +10,9 @@
     <string name="btn_disconnect">断开</string>
     <string name="btn_state_prev">上一个</string>
     <string name="btn_state_next">下一个</string>
+    <string name="btn_rotate">旋转</string>
     <string name="btn_flash">烧录</string>
+    <string name="rotate_done">显示方向已旋转 180°</string>
 
     <string name="menu_title">菜单</string>
     <string name="menu_about">关于</string>
@@ -18,7 +20,7 @@
     <string name="btn_open">打开</string>
     <string name="btn_cancel">取消</string>
     <string name="btn_close">关闭</string>
-    <string name="about_content">项目地址：\nhttps://github.com/SadYuyuko/MSU2-USB-Screen-Android\n\n关闭投屏弹窗：ADB执行\nappops set com.msu2.android PROJECT_MEDIA allow</string>
+    <string name="about_content">项目：\nhttps://github.com/SadYuyuko/MSU2-USB-Screen-Android\n\n关闭投屏弹窗：ADB执行\nappops set com.msu2.android PROJECT_MEDIA allow</string>
     <string name="update_checking">正在检查更新…</string>
     <string name="update_available">检测到最新版本：%1$s</string>
     <string name="update_changelog">更新日志：</string>
@@ -30,6 +32,7 @@
     <string name="state_3">照片</string>
     <string name="state_4">时钟</string>
     <string name="state_5">屏幕镜像</string>
+    <string name="state_6">网速</string>
 
     <string name="log_title">运行日志：</string>
 
@@ -50,4 +53,6 @@
     <string name="flash_target_photo">照片（页 3926）</string>
     <string name="flash_target_custom">自定义页</string>
     <string name="mirror_foreground_notify">MSU2 副屏正在镜像手机屏幕</string>
+    <string name="usb_keepalive_title">MSU2 已连接</string>
+    <string name="usb_keepalive_text">后台持续更新副屏显示</string>
 </resources>

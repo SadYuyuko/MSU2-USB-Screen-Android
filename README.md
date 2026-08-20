@@ -12,7 +12,8 @@
 | 2 | 手机状态 · 红色 |
 | 3 | 照片（PH1，页 3926） |
 | 4 | 时钟（CLK_BG 背景 + ASC64 ASCII 字库） |
-| 5 | 屏幕镜像（MediaProjection 截屏 → 竖屏等比缩放 → RGB565 → 压缩编码发送） |
+| 5 | 屏幕镜像（MediaProjection 截屏 → 压缩编码发送，竖屏旋转 / 横屏直显自适应） |
+| 6 | 网速（TrafficStats 差值 → 文字 + 线条图） |
 
 **烧录**：
 
@@ -46,9 +47,10 @@
 3. 首次启动 App：授予「通知」权限（用于屏幕镜像前台服务通知）。
 4. 点击「连接」，同意系统 USB 授权弹窗。
 5. 日志区显示“设备连接完成，版本 xx”及数据字典即成功。
-6. 默认进入 GIF 动图状态；点击「上一个/下一个」或按小屏幕上实体按键切换状态。
+6. 默认进入 GIF 动图状态；点击「上一个/下一个」或按小屏幕上实体按键切换状态，「旋转」键可 180° 翻转副屏显示。
 7. 切到「屏幕镜像」时系统会弹出**屏幕捕获授权**，同意后手机画面即同步到小屏幕
-   （投屏为竖屏模式，帧率受设备固件消化速度限制）。
+   （竖屏自动旋转适配，横屏 1:1 直显；帧率受设备固件消化速度限制）。
+8. 连接期间由前台服务保活：App 退到后台时网速等界面仍持续刷新（会常驻一条“已连接”通知，断开后自动消失）。
 
 > 若 Flash 中素材被改动/损坏导致某些状态空白，请重新烧录对应固件。
 
@@ -56,13 +58,14 @@
 
 ```
 app/src/main/java/com/msu2/android/
-├── MainActivity.kt            # USB 连接/权限、状态机、UI/日志、烧录(GIF/图片/固件)
+├── MainActivity.kt            # USB 连接/权限、7 状态状态机、UI/日志、烧录(GIF/图片/固件)
 ├── usb/Msu2Protocol.kt        # 协议命令编码（SFR/ADC/Flash/LCD/RGB565/屏幕编码）
 ├── usb/Msu2Serial.kt          # CDC-ACM 打开、握手、串行化 IO、屏幕数据分块发送
 ├── usb/SfrRegistry.kt         # MSN 数据字典解析
-├── ui/StatusProvider.kt       # CPU(/proc/stat)/内存/电量/存储采集
+├── ui/StatusProvider.kt       # CPU(/proc/stat)/内存/电量/存储/网速采集
 ├── ui/FlashWriter.kt          # 素材烧录（擦除/写页）
-└── services/MirrorService.kt  # MediaProjection 前台服务（Android 14 兼容，竖屏 80x160 截取）
+├── services/MirrorService.kt  # MediaProjection 前台服务（竖屏旋转 / 横屏直显自适应）
+└── services/UsbService.kt     # 连接期间前台保活（后台持续刷新）
 ```
 
 ## 协议说明

@@ -135,6 +135,10 @@ object Msu2Protocol {
         lcdSetXY(x, y) + lcdSetColor(fc, bgPage) +
             byteArrayOf(0x02, 0x03, 0x05, (ch.code and 0xFF).toByte(), (numPage / 256).toByte(), (numPage % 256).toByte())
 
+    /** 切换显示方向（0/1，旋转 180°）。 02 03 0A S 00 00 */
+    fun lcdState(state: Int): ByteArray =
+        byteArrayOf(0x02, 0x03, 0x0A, (state and 0xFF).toByte(), 0x00, 0x00)
+
     // RGB565 / 屏幕数据编码
 
     /** 将像素转成 RGB565 字节流（高5R+中6G+低5B，对齐 Python Screen_Date_get）。 */

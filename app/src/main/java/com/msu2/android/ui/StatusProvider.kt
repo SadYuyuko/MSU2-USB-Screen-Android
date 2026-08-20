@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.TrafficStats
 import android.os.BatteryManager
 import android.os.Environment
 import android.os.StatFs
@@ -98,5 +99,12 @@ object StatusProvider {
         } catch (_: Exception) {
             0
         }
+    }
+
+    /** 累计收发字节（TrafficStats）；不可用时返回 -1。 */
+    fun netCounters(): Pair<Long, Long> {
+        val rx = TrafficStats.getTotalRxBytes()
+        val tx = TrafficStats.getTotalTxBytes()
+        return (if (rx < 0) -1L else rx) to (if (tx < 0) -1L else tx)
     }
 }

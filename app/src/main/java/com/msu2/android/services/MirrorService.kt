@@ -128,9 +128,6 @@ class MirrorService : Service() {
     }
 
     private fun startCapture(mp: MediaProjection) {
-        val (w, h) = computeFitSize()
-        val ir = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
-        imageReader = ir
         mp.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
                 Log.i(TAG, "projection stopped by system/user")
@@ -138,7 +135,28 @@ class MirrorService : Service() {
                 stopMirror()
             }
         }, mainHandler)
+        val (w, h) = computeFitSize()
+        createCapture(mp, w, h)
+        MirrorBus.reset()
+        captureJob = scope.launch {
+            while (isActive && virtualDisplay != null) {
+                val needed = computeFitSize()
+                val cur = imageReader?.let { it.width to it.height }
+                if (cur != null && cur != needed) {
+                    Log.i(TAG, "方向变化，重建捕获 $cur -> $needed")
+                    createCapture(mp, needed.first, needed.second)
+                } else {
+                    acquireAndPublish()
+                }
+                delay(FRAME_INTERVAL_MS)
+            }
+        }
+    }
 
+    private fun createCapture(mp: MediaProjection, w: Int, h: Int) {
+        releaseDisplay()
+        val ir = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
+        imageReader = ir
         val vd = mp.createVirtualDisplay(
             "MSU2Mirror",
             w, h,
@@ -148,19 +166,15 @@ class MirrorService : Service() {
             null, null
         )
         virtualDisplay = vd
-
-        MirrorBus.reset()
-        captureJob = scope.launch {
-            while (isActive && virtualDisplay != null) {
-                acquireAndPublish()
-                delay(FRAME_INTERVAL_MS)
-            }
-        }
     }
 
-    /** 投屏捕获尺寸：按 80x160（竖屏）捕获完整画面，再软件旋转 90° 成 160x80 发送。 */
+    /** 投屏捕获尺寸：竖屏 80x160，横屏 160x80。 */
     private fun computeFitSize(): Pair<Int, Int> =
-        Msu2Protocol.MIRROR_W to Msu2Protocol.MIRROR_H
+        if (isLandscape()) Msu2Protocol.SCREEN_W to Msu2Protocol.SCREEN_H
+        else Msu2Protocol.MIRROR_W to Msu2Protocol.MIRROR_H
+
+    private fun isLandscape(): Boolean =
+        resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
     private fun acquireAndPublish() {
         val ir = imageReader ?: return
@@ -188,22 +202,30 @@ class MirrorService : Service() {
                     o += pixelStride
                 }
             }
-            // 软件旋转 90° 顺时针：原(w×h) -> 新(h×w)，new(nx,ny)=old(W-1-ny,nx)
-            val rw = h
-            val rh = w
-            val rotated = IntArray(rw * rh)
-            for (ny in 0 until rh) {
-                val srcCol = w - 1 - ny
-                for (nx in 0 until rw) {
-                    rotated[ny * rw + nx] = ints[nx * w + srcCol]
+            val rw: Int
+            val rh: Int
+            val frame: IntArray
+            if (w > h) {
+                // 手机横屏：整屏 1:1 直显，避免镜像
+                rw = w
+                rh = h
+                frame = ints
+            } else {
+                // 手机竖屏：软件旋转 90° 成 160x80
+                rw = h
+                rh = w
+                frame = IntArray(rw * rh)
+                for (ny in 0 until rh) {
+                    val srcCol = w - 1 - ny
+                    for (nx in 0 until rw) frame[ny * rw + nx] = ints[nx * w + srcCol]
                 }
             }
             val rgb = ByteArray(rw * rh * 2)
-            Msu2Protocol.rgb565Bytes(rotated, rw, rh, rw, rgb)
+            Msu2Protocol.rgb565Bytes(frame, rw, rh, rw, rgb)
             val data = Msu2Protocol.encodeScreenData(rgb, rw, rh)
             if (data.size != lastLoggedSize) {
                 lastLoggedSize = data.size
-                Log.i(TAG, "frame ${w}x$h 旋转→${rw}x$rh 编码${data.size}B")
+                Log.i(TAG, "frame ${w}x$h ${if (w > h) "横屏直显→" else "竖屏旋转→"}${rw}x$rh 编码${data.size}B")
             }
             MirrorBus.latest = MirrorBus.Frame(data, 0, 0, rw, rh)
         } catch (e: Exception) {
