@@ -106,6 +106,8 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var projectionGranted = false
     @Volatile private var flashing = false
     @Volatile private var lcdState = 0
+    /** 旋转指令已下发，待显示循环强制重绘当前页（对齐 Python LCD_State 后 State_change=1）。 */
+    @Volatile private var rotatePending = false
     @Volatile private var projectionDeferred: CompletableDeferred<Boolean>? = null
     @Volatile private var permissionContinuation: kotlin.coroutines.Continuation<Boolean>? = null
     private var mirrorInfoLogged = false
@@ -379,6 +381,7 @@ class MainActivity : AppCompatActivity() {
         scope.launch {
             try {
                 s.ack(Msu2Protocol.lcdState(lcdState))
+                rotatePending = true
                 log(getString(R.string.rotate_done))
             } catch (e: CancellationException) {
                 throw e
@@ -469,6 +472,10 @@ class MainActivity : AppCompatActivity() {
                 continue
             }
             var delta = 0
+            if (rotatePending) {
+                rotatePending = false
+                stateChanged = true
+            }
             if (keyEventPrev) { keyEventPrev = false; delta = -1 }
             else if (keyEvent) { keyEvent = false; delta = 1 }
             if (delta != 0) {
