@@ -11,8 +11,8 @@ android {
         applicationId = "com.msu2.android"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "2.0"
+        versionCode = 5
+        versionName = "2.0.1"
     }
 
     buildTypes {
