@@ -79,4 +79,4 @@ app/src/main/java/com/msu2/android/
 
 ## 截图
 
-<img width="540" height="1230" alt="0" src="https://github.com/user-attachments/assets/ece7b966-d781-4474-8761-f28c9b2fc77a" />
+<img width="540" height="1230" alt="0" src="https://github.com/user-attachments/assets/44df9698-6165-49f0-bb7a-e23f4c89ebf3" />
