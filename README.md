@@ -13,7 +13,7 @@
 | 3 | 照片（PH1，3926页） |
 | 4 | 时钟（CLK_BG背景+ASC64 ASCII字库） |
 | 5 | 屏幕镜像（MediaProjection截屏 → 压缩编码发送，竖屏/横屏旋转自适应） |
-| 6 | 网速（TrafficStats差值 → 文字+线条图） |
+| 6 | 网速显示（TrafficStats差值 → 文字+线条图，自动切换KB/MB单位） |
 
 **烧录**：
 
