@@ -78,9 +78,14 @@ app/src/main/java/com/msu2/android/
 
 ## 截图
 
-<img width="440" height="1000" alt="0" src="https://github.com/user-attachments/assets/44df9698-6165-49f0-bb7a-e23f4c89ebf3" />  
+APP
 
-<img width="440" height="278" alt="1" src="https://github.com/user-attachments/assets/0b0dc756-fe7c-4541-973a-6370942b4aaf" />  
+<img width="440" height="1000" alt="0" src="https://github.com/user-attachments/assets/44df9698-6165-49f0-bb7a-e23f4c89ebf3" />
 
+图片
 
-<img width="440" height="586" alt="2" src="https://github.com/user-attachments/assets/1d3c229e-849b-4ffa-b066-c7f1503cd9dd" />  
+<img width="440" height="278" alt="1" src="https://github.com/user-attachments/assets/0b0dc756-fe7c-4541-973a-6370942b4aaf" />
+
+投屏
+
+<img width="440" height="586" alt="2" src="https://github.com/user-attachments/assets/1d3c229e-849b-4ffa-b066-c7f1503cd9dd" />
