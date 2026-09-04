@@ -74,18 +74,18 @@ app/src/main/java/com/msu2/android/
 - SFR读写`CMD=0x00`；ADC读写`CMD=0x08`（CH9为按键）；
   Flash操作`CMD=0x03`；Flash数据`CMD=0x04`；LCD指令`CMD=0x02`。
 - 屏幕数据（投屏）编码：256字节/页，每页`02 04主色`+`04索引d0 d1 d2 d3`差异像素+`02 03 08`提交。
-- 详见`usb/Msu2Protocol.kt`，对齐`MSU2_MINI_DemoV1.6`源码。
+- 详见`usb/Msu2Protocol.kt`
 
 ## 截图
 
 APP
 
-<img width="440" height="1000" alt="0" src="https://github.com/user-attachments/assets/44df9698-6165-49f0-bb7a-e23f4c89ebf3" />
+<img width="440" height="1000" alt="app" src="https://github.com/user-attachments/assets/44df9698-6165-49f0-bb7a-e23f4c89ebf3" />
 
 图片
 
-<img width="440" height="278" alt="1" src="https://github.com/user-attachments/assets/0b0dc756-fe7c-4541-973a-6370942b4aaf" />
+<img width="440" height="278" alt="tp1" src="https://github.com/user-attachments/assets/0b0dc756-fe7c-4541-973a-6370942b4aaf" />
 
 投屏
 
-<img width="440" height="586" alt="2" src="https://github.com/user-attachments/assets/1d3c229e-849b-4ffa-b066-c7f1503cd9dd" />
+<img width="440" height="586" alt="tp2" src="https://github.com/user-attachments/assets/1d3c229e-849b-4ffa-b066-c7f1503cd9dd" />
