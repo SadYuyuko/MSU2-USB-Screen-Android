@@ -12,7 +12,7 @@
 | 1 | 手机状态·蓝色（CPU/内存/电量/存储，数码管显示） |
 | 2 | 手机状态·红色 内容同上 |
 | 3 | 照片（PH1，3926页） |
-| 4 | 时钟（CLK_BG背景+ASC64 ASCII字库） |
+| 4 | 时钟（CLK_BG背景+ASC64 ASCII字库，Hex输入自动转换RGB565） |
 | 5 | 屏幕镜像（MediaProjection截屏 → 压缩编码发送，竖屏/横屏旋转自适应） |
 | 6 | 网速显示（TrafficStats差值 → 文字+线条图，自动切换KB/MB单位） |
 
@@ -80,7 +80,8 @@ app/src/main/java/com/msu2/android/
 
 APP
 
-<img width="440" height="1000" alt="app" src="https://github.com/user-attachments/assets/44df9698-6165-49f0-bb7a-e23f4c89ebf3" />
+<img width="440" height="1000" alt="app1" src="https://github.com/user-attachments/assets/f93587c7-4aa9-46b5-9f52-507aab3fcb0f" />
+<img width="440" height="1000" alt="app2" src="https://github.com/user-attachments/assets/be145f44-6a62-4d4b-ab75-93511ff2171f" />
 
 图片
 
