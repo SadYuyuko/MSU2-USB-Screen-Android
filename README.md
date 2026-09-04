@@ -80,8 +80,7 @@ app/src/main/java/com/msu2/android/
 
 APP
 
-<img width="440" height="1000" alt="app1" src="https://github.com/user-attachments/assets/f93587c7-4aa9-46b5-9f52-507aab3fcb0f" />
-<img width="440" height="1000" alt="app2" src="https://github.com/user-attachments/assets/be145f44-6a62-4d4b-ab75-93511ff2171f" />
+<img width="440" height="1000" alt="app1" src="https://github.com/user-attachments/assets/f93587c7-4aa9-46b5-9f52-507aab3fcb0f" /><img width="440" height="1000" alt="app2" src="https://github.com/user-attachments/assets/be145f44-6a62-4d4b-ab75-93511ff2171f" />
 
 图片
 
