@@ -1,6 +1,7 @@
-# MSU2 USB小屏幕Android端程序
+# <img src="https://github.com/user-attachments/assets/5a0bbd8f-c0ff-4201-8b43-d495e4fa62b3" width="50" height="50" align="center"> MSU2 USB小屏幕Android端程序
 
-[下载](https://github.com/SadYuyuko/MSU2-USB-Screen-Android/releases/latest)  
+[下载](https://github.com/SadYuyuko/MSU2-USB-Screen-Android/releases/latest)
+
 基于Windows版 (`MSU2_MINI_DemoV1.6.py`) 移植，适用于 **MSU2 MINI 160×80 0.96寸小屏幕**  
 通过**OTG转接线/口**连接USB小屏幕(VID`0x1A86`/PID`0xFE0C`，CDC-ACM虚拟串口，波特率19200)
 
