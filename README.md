@@ -80,12 +80,14 @@ app/src/main/java/com/msu2/android/
 
 APP
 
-<img width="440" height="1000" alt="app1" src="https://github.com/user-attachments/assets/f93587c7-4aa9-46b5-9f52-507aab3fcb0f" /><img width="440" height="1000" alt="app2" src="https://github.com/user-attachments/assets/be145f44-6a62-4d4b-ab75-93511ff2171f" />
+<img width="880" height="1000" alt="app" src="https://github.com/user-attachments/assets/ed6f4d41-4abb-4ac1-a21d-e4aa7937ba57" />
+
 
 图片
 
-<img width="440" height="278" alt="tp1" src="https://github.com/user-attachments/assets/0b0dc756-fe7c-4541-973a-6370942b4aaf" />
+<img width="600" height="405" alt="tp1" src="https://github.com/user-attachments/assets/f69a54ea-6352-41d8-9825-994cdd09d971" />
+
 
 投屏
 
-<img width="440" height="586" alt="tp2" src="https://github.com/user-attachments/assets/1d3c229e-849b-4ffa-b066-c7f1503cd9dd" />
+<img width="600" height="353" alt="tp2" src="https://github.com/user-attachments/assets/25e26770-d93b-495b-8d31-5f55ed99157e" />
