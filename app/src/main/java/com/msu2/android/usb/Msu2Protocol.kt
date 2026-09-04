@@ -139,6 +139,11 @@ object Msu2Protocol {
     fun lcdState(state: Int): ByteArray =
         byteArrayOf(0x02, 0x03, 0x0A, (state and 0xFF).toByte(), 0x00, 0x00)
 
+    /** 用指定颜色填充当前矩形区域（02 03 0B FCH FCL 00） */
+    fun lcdColorFill(x: Int, y: Int, w: Int, h: Int, color: Int): ByteArray =
+        lcdSetXY(x, y) + lcdSetSize(w, h) +
+            byteArrayOf(0x02, 0x03, 0x0B, ((color ushr 8) and 0xFF).toByte(), (color and 0xFF).toByte(), 0x00)
+
     // RGB565 / 屏幕数据编码
 
     /** 将像素转成 RGB565 字节流（高5R+中6G+低5B，对齐 Python Screen_Date_get）。 */

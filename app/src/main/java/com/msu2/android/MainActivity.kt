@@ -106,7 +106,7 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var projectionGranted = false
     @Volatile private var flashing = false
     @Volatile private var lcdState = 0
-    /** 旋转指令已下发，待显示循环强制重绘当前页（对齐 Python LCD_State 后 State_change=1）。 */
+    /** 旋转请求：由显示循环在整屏重绘前下发 LCD_State */
     @Volatile private var rotatePending = false
     @Volatile private var projectionDeferred: CompletableDeferred<Boolean>? = null
     @Volatile private var permissionContinuation: kotlin.coroutines.Continuation<Boolean>? = null
@@ -370,25 +370,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** 旋转键：硬件切换显示方向 180°。 */
+    /** 旋转键：仅置请求位，由显示循环在整屏重绘前下发 */
     private fun rotateDisplay() {
-        val s = serial
-        if (s == null) {
+        if (serial == null) {
             log(getString(R.string.no_device))
             return
         }
         lcdState = if (lcdState == 0) 1 else 0
-        scope.launch {
-            try {
-                s.ack(Msu2Protocol.lcdState(lcdState))
-                rotatePending = true
-                log(getString(R.string.rotate_done))
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                log("旋转失败：${e.message}")
-            }
-        }
+        rotatePending = true
     }
 
     private suspend fun disconnectInternal() {
@@ -447,14 +436,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** 是否有待处理的状态切换请求（上一个/下一个）。 */
-    private fun switchPending(): Boolean = keyEvent || keyEventPrev
+    /** 有待处理的重绘请求（切换或旋转）时返回 true */
+    private fun inputPending(): Boolean = keyEvent || keyEventPrev || rotatePending
 
-    /** 分段延时：每 50ms 检查切换请求，有请求立即返回。 */
+    /** 分段延时，收到重绘请求立即返回 */
     private suspend fun delayInterruptible(ms: Long) {
         var remaining = ms
         while (remaining > 0) {
-            if (switchPending()) return
+            if (inputPending()) return
             val step = minOf(50L, remaining)
             delay(step)
             remaining -= step
@@ -474,6 +463,23 @@ class MainActivity : AppCompatActivity() {
             var delta = 0
             if (rotatePending) {
                 rotatePending = false
+                // 先切方向并整屏填充黑色压住设备清屏的白闪，再整页重绘
+                try {
+                    s.ack(Msu2Protocol.lcdState(lcdState))
+                    try {
+                        s.ack(Msu2Protocol.lcdColorFill(0, 0, Msu2Protocol.SCREEN_W, Msu2Protocol.SCREEN_H, Msu2Protocol.BLACK))
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // 填充失败不影响已完成的旋转
+                    }
+                    log(getString(R.string.rotate_done))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    log("旋转失败：${e.message}")
+                }
+                // 无论成败都整页重绘，避免残留白屏
                 stateChanged = true
             }
             if (keyEventPrev) { keyEventPrev = false; delta = -1 }
@@ -529,7 +535,7 @@ class MainActivity : AppCompatActivity() {
         if (stateChanged) {
             s.ack(Msu2Protocol.lcdPhotoWb(0, 0, Msu2Protocol.SCREEN_W, Msu2Protocol.SCREEN_H, Msu2Protocol.PAGE_MP1, fc, bc))
         }
-        if (switchPending()) return
+        if (inputPending()) return
         var cpu = StatusProvider.cpuUsage()
         if (cpu < 0) {
             if (!cpuWarned) {
@@ -543,11 +549,11 @@ class MainActivity : AppCompatActivity() {
         val frq = StatusProvider.storageUsage(this)
 
         drawN24(s, fc, bc, numAdd, 24, 0, cpu)      // CPU 左上
-        if (switchPending()) return
+        if (inputPending()) return
         drawN24(s, fc, bc, numAdd, 104, 0, mem)     // 内存 右上
-        if (switchPending()) return
+        if (inputPending()) return
         drawN24(s, fc, bc, numAdd, 104, 47, bat)    // 电量 右下
-        if (switchPending()) return
+        if (inputPending()) return
         drawN24(s, fc, bc, numAdd, 24, 47, frq)     // 存储 左下
     }
 
@@ -556,9 +562,9 @@ class MainActivity : AppCompatActivity() {
         var v = value
         if (v >= 100) { s.ack(Msu2Protocol.lcdPhotoWb(x, y, 8, 33, 10 + numAdd, fc, bc)); v %= 100 }
         else s.ack(Msu2Protocol.lcdPhotoWb(x, y, 8, 33, 11 + numAdd, fc, bc))
-        if (switchPending()) return
+        if (inputPending()) return
         s.ack(Msu2Protocol.lcdPhotoWb(x + 8, y, 24, 33, v / 10 + numAdd, fc, bc))
-        if (switchPending()) return
+        if (inputPending()) return
         s.ack(Msu2Protocol.lcdPhotoWb(x + 32, y, 24, 33, v % 10 + numAdd, fc, bc))
     }
 
@@ -569,18 +575,18 @@ class MainActivity : AppCompatActivity() {
         val numAdd = Msu2Protocol.PAGE_ASC64
         if (stateChanged) {
             s.ack(Msu2Protocol.lcdPhoto(0, 0, Msu2Protocol.SCREEN_W, Msu2Protocol.SCREEN_H, photoAdd))
-            if (switchPending()) return
+            if (inputPending()) return
             s.ack(Msu2Protocol.lcdAscii32x64Mix(56 + 8, 8, ':', fc, photoAdd, numAdd))
         }
         val now = LocalTime.now()
         val h = now.hour
         val m = now.minute
         s.ack(Msu2Protocol.lcdAscii32x64Mix(0 + 8, 8, digitChar(h / 10), fc, photoAdd, numAdd))
-        if (switchPending()) return
+        if (inputPending()) return
         s.ack(Msu2Protocol.lcdAscii32x64Mix(32 + 8, 8, digitChar(h % 10), fc, photoAdd, numAdd))
-        if (switchPending()) return
+        if (inputPending()) return
         s.ack(Msu2Protocol.lcdAscii32x64Mix(80 + 8, 8, digitChar(m / 10), fc, photoAdd, numAdd))
-        if (switchPending()) return
+        if (inputPending()) return
         s.ack(Msu2Protocol.lcdAscii32x64Mix(112 + 8, 8, digitChar(m % 10), fc, photoAdd, numAdd))
         delayInterruptible(200)
     }
@@ -624,15 +630,16 @@ class MainActivity : AppCompatActivity() {
         bitmapToRgb565(bmp, rgb)
         bmp.recycle()
         val data = Msu2Protocol.encodeScreenData(rgb, w, h)
-        s.sendScreen(Msu2Protocol.lcdLoadAddr(0, 0, w, h) + data) { switchPending() }
+        s.sendScreen(Msu2Protocol.lcdLoadAddr(0, 0, w, h) + data) { inputPending() }
         delayInterruptible(1000)
     }
 
-    /** 网速线条图：每点 2px、高 20、最小量程 100KB/s、取最近 80 点，线下填充颜色。 */
+    /** 网速曲线：量程≈当前最大网速，每点 2px、取最近 80 点，线下填充 */
     private fun drawNetLines(canvas: Canvas, values: List<Double>, baselineY: Int, color: Int) {
-        val maxValue = maxOf(1024.0 * 100.0, values.maxOrNull() ?: 0.0)
         val recent = values.takeLast(80)
         if (recent.isEmpty()) return
+        // 量程随近期约 10 个采样点的峰值自动缩放
+        val maxValue = recent.takeLast(10).maxOrNull() ?: 0.0
         val linePaint = Paint().apply {
             this.color = color
             style = Paint.Style.STROKE
@@ -660,20 +667,24 @@ class MainActivity : AppCompatActivity() {
         }
         fill.lineTo(lastX, baselineY.toFloat())
         fill.close()
+        // 裁剪到曲线带内，避免超量程尖峰盖住上方文字
+        canvas.save()
+        canvas.clipRect(0f, baselineY - 20f, canvas.width.toFloat(), baselineY.toFloat())
         canvas.drawPath(fill, fillPaint)
         canvas.drawPath(line, linePaint)
+        canvas.restore()
     }
 
-    /** 网速格式化（对齐 MG 版 sizeof_fmt）。 */
+    /** 网速格式化为 KB/s/MB/s（1024 进制） */
     private fun formatSpeed(num: Double): String {
-        val base = 1024.0
-        if (abs(num) < base) return String.format("%3.1fKiB", num / base)
-        var n = num
-        for (unit in arrayOf("", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi")) {
-            if (abs(n) < base) return String.format("%3.1f%sB", n, unit)
-            n /= base
+        val kb = num / 1024.0
+        val mb = kb / 1024.0
+        return when {
+            abs(mb) >= 100.0 -> String.format("%.0fMB/s", mb)
+            abs(mb) >= 1.0 -> String.format("%.1fMB/s", mb)
+            abs(kb) >= 100.0 -> String.format("%.0fKB/s", kb)
+            else -> String.format("%.1fKB/s", kb)
         }
-        return String.format("%.1fYiB", n)
     }
 
     /** 屏幕镜像。 */
@@ -697,7 +708,7 @@ class MainActivity : AppCompatActivity() {
             }
             // 投屏帧发送过程中每块之间检查切换请求，用户随时可切走（在指令边界安全中止）
             s.sendScreen(Msu2Protocol.lcdLoadAddr(frame.x, frame.y, frame.w, frame.h) + frame.data) {
-                switchPending()
+                inputPending()
             }
         } else {
             delay(80)
