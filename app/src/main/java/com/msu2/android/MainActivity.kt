@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -32,6 +33,7 @@ import android.widget.LinearLayout
 import android.widget.PopupWindow
 import android.widget.RadioGroup
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -570,17 +572,18 @@ class MainActivity : AppCompatActivity() {
 
     /** 时钟（HH:MM），对齐 V1.6 show_PC_time（CLK_BG 背景 + ASC64 字库，y=8）。 */
     private suspend fun showClock(s: Msu2Serial, stateChanged: Boolean) {
-        val fc = Msu2Protocol.YELLOW
+        val fc = getClockColor()
         val photoAdd = Msu2Protocol.PAGE_CLK_BG
         val numAdd = Msu2Protocol.PAGE_ASC64
         if (stateChanged) {
             s.ack(Msu2Protocol.lcdPhoto(0, 0, Msu2Protocol.SCREEN_W, Msu2Protocol.SCREEN_H, photoAdd))
             if (inputPending()) return
-            s.ack(Msu2Protocol.lcdAscii32x64Mix(56 + 8, 8, ':', fc, photoAdd, numAdd))
         }
         val now = LocalTime.now()
         val h = now.hour
         val m = now.minute
+        s.ack(Msu2Protocol.lcdAscii32x64Mix(56 + 8, 8, ':', fc, photoAdd, numAdd))
+        if (inputPending()) return
         s.ack(Msu2Protocol.lcdAscii32x64Mix(0 + 8, 8, digitChar(h / 10), fc, photoAdd, numAdd))
         if (inputPending()) return
         s.ack(Msu2Protocol.lcdAscii32x64Mix(32 + 8, 8, digitChar(h % 10), fc, photoAdd, numAdd))
@@ -1168,13 +1171,17 @@ class MainActivity : AppCompatActivity() {
             elevation = 4 * d
         }
 
-        menuView.addView(menuRow(getString(R.string.menu_about)) {
+        menuView.addView(menuRow(getString(R.string.menu_time)) {
             popup.dismiss()
-            showAboutDialog()
+            showClockColorDialog()
         })
         menuView.addView(menuRow(getString(R.string.menu_update)) {
             popup.dismiss()
             checkUpdate()
+        })
+        menuView.addView(menuRow(getString(R.string.menu_about)) {
+            popup.dismiss()
+            showAboutDialog()
         })
 
         // 面板宽 = 内容宽 × 1.5
@@ -1207,6 +1214,198 @@ class MainActivity : AppCompatActivity() {
             )
             if (rippleRes != 0) setBackgroundResource(rippleRes)
             setOnClickListener { onClick() }
+        }
+    }
+
+    // ── 时钟数字颜色（SharedPreferences） ──
+
+    private fun prefs(): SharedPreferences =
+        getSharedPreferences("msu2_prefs", Context.MODE_PRIVATE)
+
+    private fun getClockColor(): Int =
+        prefs().getInt("clock_digit_color", Msu2Protocol.YELLOW)
+
+    private fun saveClockColor(color: Int) {
+        prefs().edit().putInt("clock_digit_color", color).apply()
+    }
+
+    /** 将 RGB888 转换为 RGB565 */
+    private fun rgb888To565(r8: Int, g8: Int, b8: Int): Int =
+        ((r8 shr 3) shl 11) or ((g8 shr 2) shl 5) or (b8 shr 3)
+
+    /** 将 RGB565 拆为 RGB888 */
+    private fun rgb565To888(c: Int): Triple<Int, Int, Int> {
+        val r = ((c shr 11) and 0x1F) * 255 / 31
+        val g = ((c shr 5) and 0x3F) * 255 / 63
+        val b = (c and 0x1F) * 255 / 31
+        return Triple(r, g, b)
+    }
+
+    private fun rgb888Hex(r: Int, g: Int, b: Int): String =
+        "%02X%02X%02X".format(r, g, b)
+
+    /** 时钟数字颜色设置弹窗：#RRGGBB 输入 + RGB 滑块 + 颜色预览。 */
+    private fun showClockColorDialog() {
+        val d = resources.displayMetrics.density
+        val (initR, initG, initB) = rgb565To888(getClockColor())
+        var r = initR
+        var g = initG
+        var b = initB
+
+        fun toArgb(r: Int, g: Int, b: Int) = Color.rgb(r, g, b)
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((24 * d).toInt(), (12 * d).toInt(), (24 * d).toInt(), 0)
+        }
+
+        // ── 颜色预览卡片 + Hex 输入框 ──
+        val topRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, (16 * d).toInt())
+        }
+
+        val preview = com.google.android.material.card.MaterialCardView(this).apply {
+            layoutParams = LinearLayout.LayoutParams((56 * d).toInt(), (56 * d).toInt())
+            shapeAppearanceModel = shapeAppearanceModel.toBuilder()
+                .setAllCornerSizes(12 * d)
+                .build()
+            cardElevation = 0f
+            setCardBackgroundColor(toArgb(r, g, b))
+            preventCornerOverlap = false
+            useCompatPadding = false
+        }
+
+        val hexInputLayout = com.google.android.material.textfield.TextInputLayout(
+            this, null, com.google.android.material.R.attr.textInputStyle
+        ).apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = (16 * d).toInt()
+            }
+            prefixText = "#"
+            boxBackgroundMode = 2
+            boxStrokeWidth = (2 * d).toInt()
+            boxStrokeWidthFocused = (2 * d).toInt()
+        }
+        val hexInput = com.google.android.material.textfield.TextInputEditText(this).apply {
+            setText(rgb888Hex(r, g, b))
+            textSize = 17f
+            typeface = android.graphics.Typeface.MONOSPACE
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+            filters = arrayOf(android.text.InputFilter.LengthFilter(6))
+            isSingleLine = true
+        }
+        hexInputLayout.addView(hexInput)
+        topRow.addView(preview)
+        topRow.addView(hexInputLayout)
+        container.addView(topRow)
+
+        val numViews = mutableListOf<TextView>()
+
+        fun syncUI() {
+            preview.setCardBackgroundColor(toArgb(r, g, b))
+            hexInput.setText(rgb888Hex(r, g, b))
+            hexInput.setSelection(hexInput.text?.length ?: 0)
+            if (numViews.size == 3) {
+                numViews[0].text = r.toString()
+                numViews[1].text = g.toString()
+                numViews[2].text = b.toString()
+            }
+        }
+        fun parseHex(): Boolean {
+            val txt = hexInput.text?.toString()?.trim()?.uppercase()?.removePrefix("#") ?: return false
+            if (txt.length != 6) return false
+            val v = txt.toLongOrNull(16) ?: return false
+            r = ((v shr 16) and 0xFF).toInt()
+            g = ((v shr 8) and 0xFF).toInt()
+            b = (v and 0xFF).toInt()
+            val (qr, qg, qb) = rgb565To888(rgb888To565(r, g, b))
+            r = qr; g = qg; b = qb
+            return true
+        }
+        syncUI()
+
+        // ── R / G / B 滑块行（Material Slider） ──
+
+        fun addSlider(label: String, labelColor: Int, init: Int, onChange: (Int) -> Unit): Pair<com.google.android.material.slider.Slider, TextView> {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, (4 * d).toInt(), 0, (4 * d).toInt())
+            }
+            val labelTv = TextView(this).apply {
+                text = label
+                textSize = 14f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setTextColor(labelColor)
+                width = (20 * d).toInt()
+                gravity = android.view.Gravity.START
+            }
+            val numTv = TextView(this).apply {
+                text = init.toString()
+                textSize = 14f
+                typeface = android.graphics.Typeface.MONOSPACE
+                setTextColor(MaterialColors.getColor(this@MainActivity, com.google.android.material.R.attr.colorOnSurface, Color.DKGRAY))
+                width = (32 * d).toInt()
+                gravity = android.view.Gravity.START
+            }
+            val slider = com.google.android.material.slider.Slider(this).apply {
+                valueFrom = 0f
+                valueTo = 255f
+                stepSize = 1f
+                value = init.toFloat()
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                setPadding(0, 0, 0, 0)
+            }
+            slider.addOnChangeListener { _, value, fromUser ->
+                if (fromUser) {
+                    onChange(value.toInt())
+                    val (qr, qg, qb) = rgb565To888(rgb888To565(r, g, b))
+                    r = qr; g = qg; b = qb
+                    syncUI()
+                }
+            }
+            row.addView(labelTv)
+            row.addView(numTv)
+            row.addView(slider)
+            container.addView(row)
+            numViews.add(numTv)
+            return Pair(slider, numTv)
+        }
+
+        val (sliderR, numR) = addSlider("R", Color.rgb(200, 0, 0), r) { r = it }
+        val (sliderG, numG) = addSlider("G", Color.rgb(0, 160, 0), g) { g = it }
+        val (sliderB, numB) = addSlider("B", Color.rgb(0, 0, 200), b) { b = it }
+
+        // ── #RRGGBB 输入 → 滑块联动 ──
+        fun applyHexToSliders() {
+            if (!parseHex()) return
+            syncUI()
+        }
+        hexInput.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) applyHexToSliders()
+        }
+        hexInput.setOnEditorActionListener { _, _, _ ->
+            applyHexToSliders(); true
+        }
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.clock_color_title)
+            .setView(container)
+            .setNegativeButton(R.string.btn_cancel, null)
+            .setPositiveButton(R.string.btn_confirm, null)
+            .setNeutralButton(R.string.btn_apply, null)
+            .show()
+
+        dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            applyHexToSliders()
+            saveClockColor(rgb888To565(r, g, b))
+            dialog.dismiss()
+        }
+        dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+            applyHexToSliders()
+            saveClockColor(rgb888To565(r, g, b))
         }
     }
 
@@ -1251,10 +1450,12 @@ class MainActivity : AppCompatActivity() {
                     val msg = buildString {
                         append(getString(R.string.update_available, result.tag))
                         if (!result.body.isNullOrBlank()) {
+                            val cleaned = renderMarkdownAsText(result.body ?: "")
+                                .replace(Regex("\\n{2,}"), "\n")
                             append("\n\n")
                             append(getString(R.string.update_changelog))
                             append("\n")
-                            append(result.body)
+                            append(cleaned)
                         }
                     }
                     MaterialAlertDialogBuilder(this@MainActivity)
@@ -1349,11 +1550,43 @@ class MainActivity : AppCompatActivity() {
 
     private fun stripHtml(html: String): String {
         var s = html
-        // 块级标签换行，保留列表/段落结构
-        s = s.replace(Regex("</?(p|div|li|h[1-6]|ul|ol|pre|br|blockquote|hr)[^>]*>"), "\n")
+        // 有序列表：保留编号
+        s = Regex("<ol[^>]*>([\\s\\S]*?)</ol>", RegexOption.DOT_MATCHES_ALL).replace(s) { match ->
+            var counter = 0
+            Regex("<li[^>]*>([\\s\\S]*?)</li>", RegexOption.DOT_MATCHES_ALL).replace(match.value) { li ->
+                counter++
+                val text = li.groupValues[1].replace(Regex("<[^>]+>"), "").trim()
+                if (text.isNotEmpty()) "\n$counter. $text" else ""
+            }.replace(Regex("<[^>]+>"), "")
+        }
+        // 无序列表：添加 · 前缀
+        s = Regex("<ul[^>]*>([\\s\\S]*?)</ul>", RegexOption.DOT_MATCHES_ALL).replace(s) { match ->
+            Regex("<li[^>]*>([\\s\\S]*?)</li>", RegexOption.DOT_MATCHES_ALL).replace(match.value) { li ->
+                val text = li.groupValues[1].replace(Regex("<[^>]+>"), "").trim()
+                if (text.isNotEmpty()) "\n· $text" else ""
+            }.replace(Regex("<[^>]+>"), "")
+        }
+        // 其余块级标签换行
+        s = s.replace(Regex("</?(p|div|h[1-6]|pre|br|blockquote|hr)[^>]*>"), "\n")
         s = s.replace(Regex("<[^>]+>"), "")
         s = s.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
             .replace("&quot;", "\"").replace("&#39;", "'").replace("&nbsp;", " ")
+        return s.trim().replace(Regex("\\n{3,}"), "\n\n")
+    }
+
+    /** 将 Markdown 文本转为可读纯文本（列表、粗体、标题等）。 */
+    private fun renderMarkdownAsText(md: String): String {
+        var s = md
+        s = s.replace(Regex("```[\\s\\S]*?```"), "")
+        s = s.replace(Regex("`([^`]+)`"), "$1")
+        s = s.replace(Regex("^#{1,6}\\s+", RegexOption.MULTILINE), "")
+        s = s.replace(Regex("\\*\\*([^*]+)\\*\\*"), "$1")
+        s = s.replace(Regex("\\*([^*]+)\\*"), "$1")
+        s = s.replace(Regex("__([^_]+)__"), "$1")
+        s = s.replace(Regex("_([^_]+)_"), "$1")
+        s = s.replace(Regex("^[-*+]\\s+", RegexOption.MULTILINE), "· ")
+        s = s.replace(Regex("!\\[([^\\]]*)\\]\\([^)]+\\)"), "$1")
+        s = s.replace(Regex("\\[([^\\]]+)\\]\\([^)]+\\)"), "$1")
         return s.trim().replace(Regex("\\n{3,}"), "\n\n")
     }
 

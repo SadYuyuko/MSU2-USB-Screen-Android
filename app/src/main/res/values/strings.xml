@@ -15,12 +15,16 @@
     <string name="rotate_done">显示方向已旋转 180°</string>
 
     <string name="menu_title">菜单</string>
-    <string name="menu_about">关于</string>
+    <string name="menu_time">时间</string>
     <string name="menu_update">更新</string>
+    <string name="menu_about">关于</string>
+    <string name="clock_color_title">时钟数字颜色</string>
+    <string name="btn_confirm">确认</string>
+    <string name="btn_apply">应用</string>
     <string name="btn_open">打开</string>
     <string name="btn_cancel">取消</string>
     <string name="btn_close">关闭</string>
-    <string name="about_content">项目：\nhttps://github.com/SadYuyuko/MSU2-USB-Screen-Android\n\n关闭投屏弹窗：ADB执行\nappops set com.msu2.android PROJECT_MEDIA allow</string>
+    <string name="about_content">项目：\nhttps://github.com/SadYuyuko/MSU2-USB-Screen-Android\n基于原版 MSU2_MINI_DemoV1.6.py 移植\n\n关闭投屏弹窗：ADB执行\nappops set com.msu2.android PROJECT_MEDIA allow</string>
     <string name="update_checking">正在检查更新…</string>
     <string name="update_available">检测到最新版本：%1$s</string>
     <string name="update_changelog">更新日志：</string>
