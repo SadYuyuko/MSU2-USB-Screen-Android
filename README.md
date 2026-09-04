@@ -1,4 +1,4 @@
-# <img src="https://github.com/user-attachments/assets/5a0bbd8f-c0ff-4201-8b43-d495e4fa62b3" width="40" height="40" align="center"> MSU2 USB小屏幕Android端程序
+# <img src="https://github.com/user-attachments/assets/5a0bbd8f-c0ff-4201-8b43-d495e4fa62b3" width="40" height="40" align="center"> MSU2 USB小屏幕Android端
 
 [下载](https://github.com/SadYuyuko/MSU2-USB-Screen-Android/releases/latest)
 
