@@ -81,14 +81,14 @@ app/src/main/java/com/msu2/android/
 
 APP
 
-<img width="600" height="681" alt="app" src="https://github.com/user-attachments/assets/ed6f4d41-4abb-4ac1-a21d-e4aa7937ba57" />
+<img width="600" height="680" alt="app" src="https://github.com/user-attachments/assets/b2fb07ef-4eba-4960-b9d7-62b0634a48e1" />
 
 
-图片
+时间
 
-<img width="400" height="270" alt="tp1" src="https://github.com/user-attachments/assets/f69a54ea-6352-41d8-9825-994cdd09d971" />
+<img width="400" height="234" alt="sj" src="https://github.com/user-attachments/assets/73294437-a73b-4cef-9bb2-27d66ec91088" />
 
 
 投屏
 
-<img width="400" height="235" alt="tp2" src="https://github.com/user-attachments/assets/25e26770-d93b-495b-8d31-5f55ed99157e" />
+<img width="400" height="235" alt="tp" src="https://github.com/user-attachments/assets/25e26770-d93b-495b-8d31-5f55ed99157e" />
