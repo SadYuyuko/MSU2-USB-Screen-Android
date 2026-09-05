@@ -1,13 +1,13 @@
 package com.msu2.android.usb
 
-/** MSN 数据字典解析（逐字节对齐 Python Read_M_SFR_Data / Read_MSN_Data / Write_MSN_Data）。 */
+/** MSN 数据字典解析 */
 class SfrEntry(
     val name: ByteArray,
     val unit: ByteArray,
     val family: ByteArray,
     val data: ByteArray
 ) {
-    /** family 高 5 位：0=u8地址(16bit) 1=u16地址(8bit) 2=u32地址(16bit) 3=字符串 4=u8数组 */
+    /** family 高 5 位 */
     fun familyType(): Int = if (family.isNotEmpty()) (family[0].toInt() and 0xFF) / 32 else -1
     fun familyLen(): Int = if (family.isNotEmpty()) (family[0].toInt() and 0xFF) % 32 else 0
     fun nameString(): String = String(name, Charsets.US_ASCII)
@@ -19,7 +19,7 @@ object SfrRegistry {
 
     private const val SFR_BASE = 0x0100
 
-    /** 读取并解析 0x0100 起始的 256 字节数据字典。 */
+    /** 读取并解析数据字典 */
     suspend fun read(serial: Msu2Serial): List<SfrEntry> {
         val sfr = ByteArray(256)
         for (i in 0 until 256) sfr[i] = serial.readU8(SFR_BASE + i).toByte()
@@ -47,7 +47,7 @@ object SfrRegistry {
                     2 -> {
                         family = dataUse.toByteArray()
                         dataType = 3
-                        // 与 Python 一致：仅类型 0/1/2/3 更新长度，其余类型不修改 dataLen
+                        // 仅类型 0 到 3 更新长度
                         when ((family[0].toInt() and 0xFF) / 32) {
                             0, 2 -> dataLen = 2
                             1 -> dataLen = 1
@@ -71,7 +71,7 @@ object SfrRegistry {
         return entries
     }
 
-    /** 按名称读取数据（对齐 Python Read_MSN_Data）。 */
+    /** 按名称读取数据 */
     suspend fun readData(serial: Msu2Serial, entries: List<SfrEntry>, name: ByteArray): Any? {
         for (e in entries) {
             if (e.name.contentEquals(name)) {
@@ -89,7 +89,7 @@ object SfrRegistry {
         return null
     }
 
-    /** 按名称写入数据（对齐 Python Write_MSN_Data）。 */
+    /** 按名称写入数据 */
     suspend fun writeData(serial: Msu2Serial, entries: List<SfrEntry>, name: ByteArray, value: Int): Boolean {
         for (e in entries) {
             if (e.name.contentEquals(name)) {

@@ -13,7 +13,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.msu2.android.R
 
-/** 连接期间前台保活：后台不被系统冻结/清理。 */
+/** 连接期间前台保活 */
 class UsbService : Service() {
 
     companion object {

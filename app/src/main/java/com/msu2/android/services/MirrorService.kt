@@ -31,7 +31,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-/** 屏幕镜像前台服务（MediaProjection；Android 14 需先 startForeground 再 getMediaProjection）。 */
+/** 屏幕镜像前台服务 */
 class MirrorService : Service() {
 
     companion object {
@@ -57,7 +57,7 @@ class MirrorService : Service() {
         }
     }
 
-    /** 帧总线：镜像服务产出的最新帧，由状态机消费。 */
+    /** 帧总线 */
     object MirrorBus {
         class Frame(val data: ByteArray, val x: Int, val y: Int, val w: Int, val h: Int)
         @Volatile var latest: Frame? = null
@@ -107,13 +107,13 @@ class MirrorService : Service() {
 
         scope.launch {
             try {
-                // 1) 先启动前台服务（mediaProjection 类型）
+                // 1) 启动前台服务
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     startForeground(NOTIF_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
                 } else {
                     startForeground(NOTIF_ID, buildNotification())
                 }
-                // 2) 再获取投影 token
+                // 2) 获取投影 token
                 val mp = projectionManager!!.getMediaProjection(resultCode, resultData)
                     ?: throw IllegalStateException("getMediaProjection 返回空")
                 mediaProjection = mp
@@ -168,7 +168,7 @@ class MirrorService : Service() {
         virtualDisplay = vd
     }
 
-    /** 投屏捕获尺寸：竖屏 80x160，横屏 160x80。 */
+    /** 投屏捕获尺寸 */
     private fun computeFitSize(): Pair<Int, Int> =
         if (isLandscape()) Msu2Protocol.SCREEN_W to Msu2Protocol.SCREEN_H
         else Msu2Protocol.MIRROR_W to Msu2Protocol.MIRROR_H
@@ -206,12 +206,12 @@ class MirrorService : Service() {
             val rh: Int
             val frame: IntArray
             if (w > h) {
-                // 手机横屏：整屏 1:1 直显，避免镜像
+                // 横屏整屏直显
                 rw = w
                 rh = h
                 frame = ints
             } else {
-                // 手机竖屏：软件旋转 90° 成 160x80
+                // 竖屏软件旋转
                 rw = h
                 rh = w
                 frame = IntArray(rw * rh)
